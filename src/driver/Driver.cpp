@@ -1,3 +1,6 @@
+#define __STDC_LIMIT_MACROS
+#define __STDC_CONSTANT_MACROS
+
 #include "Driver.h"
 
 #include "llvm/Support/FileSystem.h"

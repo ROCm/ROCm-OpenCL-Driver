@@ -43,12 +43,16 @@
 cmake_minimum_required(VERSION 2.6)
 
 file(GLOB sources
-  ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/*.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/*.cl
 )
 
-link_directories(${LLVM_LIBRARY_DIRS})
-add_executable(opencl_driver_sample ${sources})
-target_link_libraries(opencl_driver_sample opencl_driver)
+set(CL $<TARGET_FILE:roc-cl>)
 
-install(TARGETS opencl_driver_sample RUNTIME DESTINATION bin)
+macro(cl_compile_test name)
+  add_test(
+    NAME ${name}:compile
+    COMMAND ${CL} -c ${name}.cl fiji
+  )
+endmacro()
+
+cl_compile_test(simple)

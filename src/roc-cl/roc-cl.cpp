@@ -7,24 +7,16 @@ using namespace llvm;
 
 int main(int argc, char* argv[])
 {
-  std::string path = argv[1];
   OpenCLDriver theDriver;
-  if (!theDriver.Init(path)) {
+  // the first argument is clang executable path (internal Clang's Driver implementation limitation)
+  // ToDo: get rid of passing clang path as an argument
+  if (!theDriver.Init(argv[1])) {
     return 1;
   }
-
-  using namespace std;
-  SmallVector<const char *, 16> args;
-  args.push_back(argv[1]);
-  args.push_back(argv[2]);
-  args.push_back("-g");
-//  args.push_back("--save-temps");
-  string device = "-mcpu=";
-  device.append(argv[3]);
-  args.push_back(device.c_str());
+  SmallVector<const char *, 16> args(argv+1, argv + argc);
   args.push_back("-Dcl_clang_storage_class_specifiers");
   args.push_back("-v");
-
+  // Building from OpenCL to AMDHSA CO via AMDGPU backend
   int Res = theDriver.Build(args);
 
   return Res;

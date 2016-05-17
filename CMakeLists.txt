@@ -42,7 +42,7 @@
 
 cmake_minimum_required(VERSION 2.6)
 
-project(ROCm-OpenCL-Lib)
+project(ROCm-OpenCL-Driver)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/dist CACHE INTERNAL "Prefix prepended to install directories")

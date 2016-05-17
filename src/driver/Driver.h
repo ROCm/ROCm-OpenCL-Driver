@@ -31,14 +31,6 @@ public:
 
 protected:
 
-  void setTriple(const llvm::Triple &trpl) { triple = trpl; }
-
-  void setTriple(const llvm::Triple::ArchType &arch,
-                 const llvm::Triple::VendorType &vendor,
-                 const llvm::Triple::OSType &os);
-
-  llvm::Triple triple;
-
   clang::driver::Driver *clangDriver;
 
   clang::DiagnosticsEngine *diags;

@@ -25,14 +25,26 @@ using namespace amd;
 CompilerDriver::CompilerDriver() {
 }
 
-void CompilerDriver::setTriple(const Triple::ArchType &arch,
-                       const Triple::VendorType &vendor,
-                       const Triple::OSType &os) {
+void constructTriple(Triple &triple,
+                     const Triple::ArchType &arch,
+                     const Triple::VendorType &vendor,
+                     const Triple::OSType &os) {
   triple.setArch(arch);
   triple.setVendor(vendor);
   triple.setOS(os);
-  //  triple.setEnvironment(llvm::Triple::EnvironmentType::AMDOpenCL);
-  //  triple.setObjectFormat(llvm::Triple::ObjectFormatType::ELF);
+}
+
+void constructTriple(Triple &triple,
+                     const Triple::ArchType &arch,
+                     const Triple::VendorType &vendor,
+                     const Triple::OSType &os,
+                     const Triple::EnvironmentType &environment,
+                     const Triple::ObjectFormatType &objectFormat) {
+  triple.setArch(arch);
+  triple.setVendor(vendor);
+  triple.setOS(os);
+  triple.setEnvironment(environment);
+  triple.setObjectFormat(objectFormat);
 }
 
 bool CompilerDriver::Fini() {
@@ -51,7 +63,13 @@ bool OpenCLDriver::Init(StringRef ClangExecutable) {
     return false;
   }
 
-  setTriple(Triple::ArchType::amdgcn, Triple::VendorType::AMD, Triple::OSType::AMDHSA);
+  Triple triple;
+  constructTriple(triple,
+    Triple::ArchType::amdgcn,
+    Triple::VendorType::AMD,
+    Triple::OSType::AMDHSA,
+    Triple::EnvironmentType::AMDOpenCL,
+    Triple::ObjectFormatType::ELF);
 
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts = new DiagnosticOptions();
   TextDiagnosticPrinter *diagClient = new TextDiagnosticPrinter(llvm::errs(), &*diagOpts);

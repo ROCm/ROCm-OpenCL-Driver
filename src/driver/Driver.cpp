@@ -56,9 +56,11 @@ bool OpenCLDriver::Init(StringRef ClangExecutable) {
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts = new DiagnosticOptions();
   TextDiagnosticPrinter *diagClient = new TextDiagnosticPrinter(llvm::errs(), &*diagOpts);
   IntrusiveRefCntPtr<DiagnosticIDs> diagID(new DiagnosticIDs());
-  DiagnosticsEngine diags(diagID, &*diagOpts, diagClient);
+  diags = new DiagnosticsEngine(diagID, &*diagOpts, diagClient);
 
-  clangDriver = new Driver(clangExe, triple.str(), diags);
+  clangDriver = new Driver(clangExe, triple.str(), *diags);
+  clangDriver->setTitle("AMDGPU OpenCL driver");
+  clangDriver->setCheckInputsExist(false);
 
   return true;
 }
@@ -67,9 +69,6 @@ OpenCLDriver::OpenCLDriver() : CompilerDriver() {}
 
 int OpenCLDriver::Build(ArrayRef<const char *> args) {
   using namespace clang::driver;
-
-  clangDriver->setTitle("AMDGPU OpenCL driver");
-  clangDriver->setCheckInputsExist(false);
 
   std::unique_ptr<Compilation> C(clangDriver->BuildCompilation(args));
 
@@ -99,7 +98,6 @@ int OpenCLDriver::Build(ArrayRef<const char *> args) {
   }
 
   clangDriver->PrintActions(*C);
-
 
 //  const DiagnosticsEngine &diags = clangDriver->getDiags();
 //  DiagnosticConsumer *diagCons = const_cast<DiagnosticConsumer*>(diags.getClient());

@@ -8,6 +8,7 @@
 #include "llvm/ADT/Triple.h"
 
 namespace clang {
+  class DiagnosticsEngine;
   namespace driver {
     class Driver;
   }
@@ -40,7 +41,7 @@ protected:
 
   clang::driver::Driver *clangDriver;
 
-//  DiagnosticsEngine *diags;
+  clang::DiagnosticsEngine *diags;
 
   llvm::StringRef clangExe;
 };

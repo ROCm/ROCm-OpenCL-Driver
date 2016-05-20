@@ -1,23 +1,75 @@
 #include <string>
-#include "Driver.h"
-#include "llvm/ADT/SmallVector.h"
+#include "AmdCompiler.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/FormattedStream.h"
+
+using namespace llvm;
+
+enum ActionType {
+  AC_NotSet,
+  AC_CompileToLLVMBitcode,
+  AC_LinkLLVMBitcode,
+  AC_CompileAndLinkExecutable,
+};
+
+static cl::opt<ActionType>
+Action(cl::desc("Action to perform:"),
+       cl::init(AC_NotSet),
+       cl::values(
+         clEnumValN(AC_CompileToLLVMBitcode, "compile_to_llvm", "Compile to LLVM bitcode"),
+         clEnumValN(AC_LinkLLVMBitcode, "link_llvm", "Link LLVM bitcode"),
+         clEnumValN(AC_CompileAndLinkExecutable, "compile_and_link", "Compile and link executable"),
+         clEnumValEnd
+       )
+      );
+
+static cl::opt<std::string>
+LLVMBin("llvmbin", cl::desc("LLVM binary directory"));
+
+static cl::list<std::string>
+InputFilenames(cl::Positional, cl::desc("<input files>"),cl::ZeroOrMore);
+
+static cl::opt<std::string>
+OutputFilename("o", cl::desc("Output filename"),
+               cl::value_desc("filename"));
 
 using namespace amd;
 using namespace llvm;
 
 int main(int argc, char* argv[])
 {
-  OpenCLDriver theDriver;
-  // the first argument is clang executable path (internal Clang's Driver implementation limitation)
-  // ToDo: get rid of passing clang path as an argument
-  if (!theDriver.Init(argv[1])) {
-    return 1;
-  }
-  SmallVector<const char *, 16> args(argv+1, argv + argc);
-  args.push_back("-Dcl_clang_storage_class_specifiers");
-  args.push_back("-v");
-  // Building from OpenCL to AMDHSA CO via AMDGPU backend
-  int Res = theDriver.Build(args);
+  cl::ParseCommandLineOptions(argc, argv, "AMD OpenCL Compiler");
 
-  return Res;
+  CompilerDriver compilerDriver;
+
+  std::unique_ptr<Compiler> compiler(compilerDriver.CreateAMDGPUCompiler(LLVMBin));
+
+  std::vector<Data*> inputs;
+
+  for (const std::string& inputFile : InputFilenames) {
+    inputs.push_back(compiler->NewInputFile(DT_CL, inputFile));
+  }
+  
+  Data* output;
+
+  bool res;
+  switch (Action) {
+  case AC_NotSet:
+    errs() << "Error: action is not specified.\n"; res = false;
+    break;
+  case AC_CompileToLLVMBitcode:
+    output = compiler->NewOutputFile(DT_LLVM_BC, OutputFilename);
+    res = compiler->CompileToLLVMBitcode(inputs, output, "");
+    break;
+  case AC_LinkLLVMBitcode:
+    output = compiler->NewOutputFile(DT_LLVM_BC, OutputFilename);
+    res = compiler->LinkLLVMBitcode(inputs, output, "");
+    break;
+  case AC_CompileAndLinkExecutable:
+    output = compiler->NewOutputFile(DT_EXECUTABLE, OutputFilename);
+    res = compiler->CompileAndLinkExecutable(inputs, output, "");
+    break;
+  }
+
+  return res ? 0 : 1;
 }

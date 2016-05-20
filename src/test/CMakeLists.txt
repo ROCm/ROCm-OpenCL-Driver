@@ -47,12 +47,19 @@ file(GLOB sources
 )
 
 set(CL $<TARGET_FILE:roc-cl>)
+set(LLVMBIN ${LLVM_TOOLS_BINARY_DIR})
 
-macro(cl_compile_test name)
+macro(roc_cl_test name)
   add_test(
-    NAME ${name}:compile
-    COMMAND ${CL} -c ${name}.cl fiji
+    NAME ${name}
+    COMMAND ${CL} -llvmbin ${LLVMBIN} ${ARGN}
   )
 endmacro()
 
-cl_compile_test(simple)
+set(SIMPLE ${CMAKE_CURRENT_SOURCE_DIR}/simple.cl)
+set(EXTERN_FUNCTION ${CMAKE_CURRENT_SOURCE_DIR}/extern_function1.cl ${CMAKE_CURRENT_SOURCE_DIR}/extern_function2.cl)
+
+roc_cl_test(simple:compile_to_llvm -compile_to_llvm ${SIMPLE} -o out.bc)
+roc_cl_test(simple:compile_and_link -compile_and_link ${SIMPLE} -o out.co)
+roc_cl_test(extern_function:compile_to_llvm -compile_to_llvm ${EXTERN_FUNCTION} -o out.bc)
+roc_cl_test(extern_function:compile_and_link -compile_and_link ${EXTERN_FUNCTION} -o out.co)

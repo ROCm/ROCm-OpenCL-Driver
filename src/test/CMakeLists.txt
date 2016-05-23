@@ -60,6 +60,8 @@ set(SIMPLE ${CMAKE_CURRENT_SOURCE_DIR}/simple.cl)
 set(EXTERN_FUNCTION ${CMAKE_CURRENT_SOURCE_DIR}/extern_function1.cl ${CMAKE_CURRENT_SOURCE_DIR}/extern_function2.cl)
 
 roc_cl_test(simple:compile_to_llvm -compile_to_llvm ${SIMPLE} -o out.bc)
+roc_cl_test(simple:compile_to_llvm-g -compile_to_llvm ${SIMPLE} -g -o out.bc)
+roc_cl_test(simple:compile_to_llvm-fembed-bitcode -compile_to_llvm ${SIMPLE} -fembed-bitcode -o out.bc)
 roc_cl_test(simple:compile_and_link -compile_and_link ${SIMPLE} -o out.co)
 roc_cl_test(extern_function:compile_to_llvm -compile_to_llvm ${EXTERN_FUNCTION} -o out.bc)
 roc_cl_test(extern_function:compile_and_link -compile_and_link ${EXTERN_FUNCTION} -o out.co)

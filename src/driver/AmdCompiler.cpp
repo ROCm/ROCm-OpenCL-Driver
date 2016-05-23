@@ -43,8 +43,8 @@ private:
   File* ToInputFile(Data* input);
   File* ToOutputFile(Data* output);
 
-  bool CompileToLLVMBitcode(Data* input, Data* output, const std::string& options);
-  bool CompileAndLinkExecutable(Data* input, Data* output, const std::string& options);
+  bool CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options);
+  bool CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options);
 
 public:
   AMDGPUCompiler(const std::string& llvmBin);
@@ -61,11 +61,11 @@ public:
 
   Data* NewBuffer(DataType type) override;
 
-  bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::string& options) override;
+  bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
-  bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::string& options) override;
+  bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
-  bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::string& options) override;
+  bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 };
 
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
@@ -204,7 +204,7 @@ Data* AMDGPUCompiler::NewBuffer(DataType type)
   return 0;
 }
 
-bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::string& options)
+bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options)
 {
   std::vector<const char*> args;
 
@@ -219,10 +219,16 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
 
   args.push_back("-o"); args.push_back(bcFile->Name().c_str());
 
+  for (const std::string& s : options) {
+    args.push_back(s.c_str());
+  }
+
   return InvokeDriver(args);
 }
 
-bool AMDGPUCompiler::CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::string& options)
+const std::vector<std::string> emptyOptions;
+
+bool AMDGPUCompiler::CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options)
 {
   if (inputs.size() == 1) {
     return CompileToLLVMBitcode(inputs[0], output, options);
@@ -233,11 +239,11 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data
       if (!CompileToLLVMBitcode(input, bcFile, options)) { return false; }
       bcFiles.push_back(bcFile);
     }
-    return LinkLLVMBitcode(bcFiles, output, "");
+    return LinkLLVMBitcode(bcFiles, output, emptyOptions);
   }
 }
 
-bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::string& options)
+bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options)
 {
   std::vector<const char*> args;
   for (Data* input : inputs) {
@@ -246,10 +252,14 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   }
   File* outputFile = ToOutputFile(output);
   args.push_back("-o"); args.push_back(outputFile->Name().c_str());
+  for (const std::string& s : options) {
+    args.push_back(s.c_str());
+  }
+
   return InvokeLLVMLink(args);
 }
 
-bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::string& options)
+bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options)
 {
   std::vector<const char*> args;
 
@@ -262,16 +272,21 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
 
   args.push_back("-o"); args.push_back(outputFile->Name().c_str());
 
+  for (const std::string& s : options) {
+    args.push_back(s.c_str());
+  }
+
+
   return InvokeDriver(args);
 }
 
-bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::string& options)
+bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options)
 {
   if (inputs.size() == 1) {
     return CompileAndLinkExecutable(inputs[0], output, options);
   } else {
     File* bcFile = NewTempFile(DT_LLVM_BC, "bc");
-    if (!CompileToLLVMBitcode(inputs, bcFile, "")) { return false; }
+    if (!CompileToLLVMBitcode(inputs, bcFile, emptyOptions)) { return false; }
     return CompileAndLinkExecutable(bcFile, output, options);
   }
 }

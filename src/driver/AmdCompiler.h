@@ -86,11 +86,11 @@ public:
 
   virtual Data* NewBuffer(DataType type) = 0;
 
-  virtual bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::string& options) = 0;
+  virtual bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
 
-  virtual bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::string& options) = 0;
+  virtual bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
 
-  virtual bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::string& options) = 0;
+  virtual bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
 };
 
 class CompilerDriver {

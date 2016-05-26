@@ -48,6 +48,11 @@ file(GLOB sources
 link_directories(${LLVM_LIBRARY_DIRS})
 add_library(opencl_driver ${sources})
 llvm_map_components_to_libnames(llvm_libs support core option)
+
+if (WIN32)
+target_link_libraries(opencl_driver version)
+endif (WIN32)
+
 target_link_libraries(opencl_driver
   clangDriver
   clangFrontend

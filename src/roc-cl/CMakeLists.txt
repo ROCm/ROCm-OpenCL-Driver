@@ -51,4 +51,8 @@ link_directories(${LLVM_LIBRARY_DIRS})
 add_executable(roc-cl ${sources})
 target_link_libraries(roc-cl opencl_driver)
 
+if (WIN32)
+  include_directories(${LLVM_INCLUDE_DIRS})
+endif (WIN32)
+
 install(TARGETS roc-cl RUNTIME DESTINATION bin)

@@ -18,6 +18,14 @@
 #include "clang/Basic/VirtualFileSystem.h"
 // #include "clang/Tooling/Tooling.h"
 
+#ifdef _WIN32
+#include "windows.h"
+#include "io.h"
+#else
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+
 using namespace llvm;
 using namespace clang;
 using namespace clang::driver;
@@ -186,11 +194,25 @@ File* AMDGPUCompiler::NewOutputFile(DataType type, const std::string& path)
 File* AMDGPUCompiler::NewTempFile(DataType type, const char* ext)
 {
   static int counter = 1;
-  std::string name;
-  name += "/tmp/temp.";
+  static char templ[] = "AMD_tmp_XXXXXX";
+  char fname[15];
+  strcpy(fname, templ);
+  mktemp(fname);
+  std::string name(fname);
+  name += "_";
   name += std::to_string((counter++));
   name += ".";
   name += ext;
+
+#ifdef _WIN32
+  char buf[MAX_PATH];
+  if (GetTempPath(MAX_PATH, buf) != 0) {
+    name = std::string(buf) + name;
+  }
+#else
+  name += "/tmp/" + name;
+#endif
+
   return AddData(new File(type, name, true));
 }
 

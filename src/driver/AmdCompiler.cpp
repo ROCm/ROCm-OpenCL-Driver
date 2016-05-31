@@ -2,6 +2,7 @@
 #define __STDC_CONSTANT_MACROS
 
 #include "AmdCompiler.h"
+#include <cstdio>
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Program.h"
@@ -32,6 +33,18 @@ using namespace clang::driver;
 
 namespace amd {
 
+class TempFile : public File {
+public:
+  TempFile(DataType type, const std::string& name)
+    : File(type, name, false) {}
+  ~TempFile();
+};
+
+TempFile::~TempFile()
+{
+  std::remove(Name().c_str());
+}
+
 class AMDGPUCompiler : public Compiler {
 private:
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts;
@@ -56,6 +69,7 @@ private:
 
 public:
   AMDGPUCompiler(const std::string& llvmBin);
+  ~AMDGPUCompiler();
 
   std::string Output() override { return std::string(); }
 
@@ -63,7 +77,7 @@ public:
 
   File* NewOutputFile(DataType type, const std::string& path) override;
 
-  File* NewTempFile(DataType type, const char* ext) override;
+  File* NewTempFile(DataType type) override;
 
   Data* NewBufferReference(DataType type, const char* ptr, size_t size) override;
 
@@ -92,6 +106,11 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin)
 {
   driver->setTitle("AMDGPU OpenCL driver");
   driver->setCheckInputsExist(false);
+}
+
+AMDGPUCompiler::~AMDGPUCompiler()
+{
+  for (Data* d : datas) { delete d; }
 }
 
 bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
@@ -191,8 +210,21 @@ File* AMDGPUCompiler::NewOutputFile(DataType type, const std::string& path)
   return AddData(new File(type, path, false));
 }
 
-File* AMDGPUCompiler::NewTempFile(DataType type, const char* ext)
+const char* DataTypeExt(DataType type)
 {
+  switch (type) {
+  case DT_CL: return "cl";
+  case DT_LLVM_BC: return "bc";
+  case DT_LLVM_LL: return "ll";
+  case DT_EXECUTABLE: return "bc";
+  default:
+    assert(false); return 0;
+  }
+}
+
+File* AMDGPUCompiler::NewTempFile(DataType type)
+{
+  const char* ext = DataTypeExt(type);
   static int counter = 1;
   static char templ[] = "AMD_tmp_XXXXXX";
   char fname[15];
@@ -213,7 +245,7 @@ File* AMDGPUCompiler::NewTempFile(DataType type, const char* ext)
   name = "/tmp/" + name;
 #endif
 
-  return AddData(new File(type, name, true));
+  return AddData(new TempFile(type, name));
 }
 
 Data* AMDGPUCompiler::NewBufferReference(DataType type, const char* ptr, size_t size)
@@ -257,7 +289,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data
   } else {
     std::vector<Data*> bcFiles;
     for (Data* input : inputs) {
-      File* bcFile = NewTempFile(DT_LLVM_BC, "bc");
+      File* bcFile = NewTempFile(DT_LLVM_BC);
       if (!CompileToLLVMBitcode(input, bcFile, options)) { return false; }
       bcFiles.push_back(bcFile);
     }
@@ -307,7 +339,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
   if (inputs.size() == 1) {
     return CompileAndLinkExecutable(inputs[0], output, options);
   } else {
-    File* bcFile = NewTempFile(DT_LLVM_BC, "bc");
+    File* bcFile = NewTempFile(DT_LLVM_BC);
     if (!CompileToLLVMBitcode(inputs, bcFile, emptyOptions)) { return false; }
     return CompileAndLinkExecutable(bcFile, output, options);
   }

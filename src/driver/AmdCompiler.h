@@ -80,7 +80,7 @@ public:
 
   virtual File* NewOutputFile(DataType type, const std::string& path) = 0;
 
-  virtual File* NewTempFile(DataType type, const char* ext) = 0;
+  virtual File* NewTempFile(DataType type) = 0;
 
   virtual Data* NewBufferReference(DataType type, const char* ptr, size_t size) = 0;
 

@@ -31,7 +31,6 @@ class AMDGPUCompilerTest : public ::testing::Test {
 protected:
   std::string llvmBin;
   std::string testDir;
-  std::string tmpDir;
   std::vector<std::string> emptyOptions;
 
   virtual void SetUp() {
@@ -39,8 +38,6 @@ protected:
     llvmBin = getenv("LLVM_BIN");
     ASSERT_NE(getenv("TEST_DIR"), nullptr);
     testDir = getenv("TEST_DIR");
-    ASSERT_NE(getenv("TMP_DIR"), nullptr);
-    tmpDir = getenv("TMP_DIR");
     compiler = driver.CreateAMDGPUCompiler(llvmBin);
   }
 
@@ -52,8 +49,8 @@ protected:
     return compiler->NewInputFile(type, joinf(testDir, name));
   }
 
-  File* TmpOutputFile(DataType type, const std::string& name) {
-    return compiler->NewOutputFile(type, joinf(tmpDir, name));
+  File* TmpOutputFile(DataType type) {
+    return compiler->NewTempFile(type);
   }
 
   CompilerDriver driver;
@@ -77,7 +74,7 @@ TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_File_To_File)
 {
   File* f = TestDirInputFile(DT_CL, simpleCl);
   ASSERT_NE(f, nullptr);
-  File* out = TmpOutputFile(DT_LLVM_BC, outBc);
+  File* out = TmpOutputFile(DT_LLVM_BC);
   ASSERT_NE(out, nullptr);
   std::vector<Data*> inputs;
   inputs.push_back(f);
@@ -89,7 +86,7 @@ TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_File_To_File)
 {
   File* f = TestDirInputFile(DT_CL, simpleCl);
   ASSERT_NE(f, nullptr);
-  File* out = TmpOutputFile(DT_EXECUTABLE, outCo);
+  File* out = TmpOutputFile(DT_EXECUTABLE);
   ASSERT_NE(out, nullptr);
   std::vector<Data*> inputs;
   inputs.push_back(f);
@@ -107,7 +104,7 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_File_To_File)
 
   inputs.push_back(ef1);
   inputs.push_back(ef2);
-  File* out = TmpOutputFile(DT_EXECUTABLE, outCo);
+  File* out = TmpOutputFile(DT_EXECUTABLE);
   ASSERT_NE(out, nullptr);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
   ASSERT_TRUE(FileExists(out));
@@ -124,20 +121,20 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
 
   inputs.clear();
   inputs.push_back(ef1);
-  File* out1 = TmpOutputFile(DT_LLVM_BC, out1Bc);
+  File* out1 = TmpOutputFile(DT_LLVM_BC);
   ASSERT_NE(out1, nullptr);
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out1, emptyOptions));
 
   inputs.clear();
   inputs.push_back(ef2);
-  File* out2 = TmpOutputFile(DT_LLVM_BC, out2Bc);
+  File* out2 = TmpOutputFile(DT_LLVM_BC);
   ASSERT_NE(out1, nullptr);
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out2, emptyOptions));
 
   inputs.clear();
   inputs.push_back(out1);
   inputs.push_back(out2);
-  File* out = TmpOutputFile(DT_EXECUTABLE, outCo);
+  File* out = TmpOutputFile(DT_EXECUTABLE);
   ASSERT_NE(out, nullptr);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
   ASSERT_TRUE(FileExists(out));

@@ -76,4 +76,4 @@ add_test(NAME roc-cl-unittest
          COMMAND $<TARGET_FILE:roc-cl-unittest>)
 
 set_property(TEST roc-cl-unittest PROPERTY ENVIRONMENT
-             "LLVM_BIN=${LLVM_DIR}/bin")
+             "LLVM_BIN=${LLVM_BINARY_DIR}/bin;TEST_DIR=${CMAKE_SOURCE_DIR}/src/test;TMP_DIR=${CMAKE_BINARY_DIR}")

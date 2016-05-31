@@ -210,7 +210,7 @@ File* AMDGPUCompiler::NewTempFile(DataType type, const char* ext)
     name = std::string(buf) + name;
   }
 #else
-  name += "/tmp/" + name;
+  name = "/tmp/" + name;
 #endif
 
   return AddData(new File(type, name, true));

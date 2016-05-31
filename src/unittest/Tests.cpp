@@ -99,13 +99,44 @@ TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_File_To_File)
 
 TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_File_To_File)
 {
+  std::vector<Data*> inputs;
   File* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
   ASSERT_NE(ef1, nullptr);
   File* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
   ASSERT_NE(ef2, nullptr);
-  std::vector<Data*> inputs;
+
   inputs.push_back(ef1);
   inputs.push_back(ef2);
+  File* out = TmpOutputFile(DT_EXECUTABLE, outCo);
+  ASSERT_NE(out, nullptr);
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(FileExists(out));
+}
+
+
+TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
+{
+  std::vector<Data*> inputs;
+  File* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
+  ASSERT_NE(ef1, nullptr);
+  File* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
+  ASSERT_NE(ef2, nullptr);
+
+  inputs.clear();
+  inputs.push_back(ef1);
+  File* out1 = TmpOutputFile(DT_LLVM_BC, out1Bc);
+  ASSERT_NE(out1, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out1, emptyOptions));
+
+  inputs.clear();
+  inputs.push_back(ef2);
+  File* out2 = TmpOutputFile(DT_LLVM_BC, out2Bc);
+  ASSERT_NE(out1, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out2, emptyOptions));
+
+  inputs.clear();
+  inputs.push_back(out1);
+  inputs.push_back(out2);
   File* out = TmpOutputFile(DT_EXECUTABLE, outCo);
   ASSERT_NE(out, nullptr);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));

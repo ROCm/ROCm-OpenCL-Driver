@@ -45,6 +45,10 @@ cmake_minimum_required(VERSION 2.6)
 find_package(Threads REQUIRED)
 include(ExternalProject)
 
+IF (NOT DEFINED ENV{LLVM_BINARY_DIR})
+   SET(LLVM_BINARY_DIR ${LLVMBIN}/..)
+ENDIF()
+
 ExternalProject_Add(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest
@@ -59,9 +63,9 @@ ExternalProject_Add(
 
 ExternalProject_Get_Property(googletest source_dir)
 include_directories(${source_dir}/googletest/include)
-
-ExternalProject_Get_Property(googletest binary_dir)
-link_directories(${binary_dir}/googletest)
+IF(MSVC)
+link_directories(${source_dir}/googletest/msvc/gtest-md/$(Configuration))
+ENDIF()
 
 #include(${GTEST_INCLUDE_DIRS})
 file(GLOB sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
@@ -69,7 +73,13 @@ file(GLOB sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 link_directories(${LLVM_LIBRARY_DIRS})
 add_executable(roc-cl-unittest ${sources})
 target_link_libraries(roc-cl-unittest opencl_driver)
+IF(MSVC)
+target_link_libraries(roc-cl-unittest gtestd gtest_main-mdd)
+ELSE()
+ExternalProject_Get_Property(googletest binary_dir)
+link_directories(${binary_dir}/googletest)
 target_link_libraries(roc-cl-unittest gtest gtest_main)
+ENDIF()
 target_link_libraries(roc-cl-unittest ${CMAKE_THREAD_LIBS_INIT})
 
 add_test(NAME roc-cl-unittest

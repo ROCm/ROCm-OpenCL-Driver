@@ -76,6 +76,21 @@ static const char* simpleSource =
 "}                                                     \n"
 ;
 
+static const char* externFunction1 =
+"extern int test_function();                           \n"
+"                                                      \n"
+"kernel void test_kernel(global int* out)              \n"
+"{                                                     \n"
+"  out[0] = test_function();                           \n"
+"}                                                     \n"
+;
+
+static const char* externFunction2 =
+"int test_function()                                   \n"
+"{                                                     \n"
+"  return 5;                                           \n"
+"}                                                     \n"
+;
 
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
 {
@@ -94,7 +109,6 @@ TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_File_To_File)
   ASSERT_TRUE(FileExists(out));
 }
 
-/*
 TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Buffer_To_Buffer)
 {
   Data* src = NewClSource(simpleSource);
@@ -106,7 +120,6 @@ TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Buffer_To_Buffer)
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, emptyOptions));
   ASSERT_TRUE(!out->IsEmpty());
 }
-*/
 
 TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_File_To_File)
 {
@@ -118,6 +131,18 @@ TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_File_To_File)
   inputs.push_back(f);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
   ASSERT_TRUE(FileExists(out));
+}
+
+TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_Buffer_To_Buffer)
+{
+  Data* src = NewClSource(simpleSource);
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
 }
 
 TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_File_To_File)
@@ -136,6 +161,84 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_File_To_File)
   ASSERT_TRUE(FileExists(out));
 }
 
+TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_Buffer_To_Buffer)
+{
+  std::vector<Data*> inputs;
+  Data* src1 = NewClSource(externFunction1);
+  ASSERT_NE(src1, nullptr);
+  Data* src2 = NewClSource(externFunction2);
+  ASSERT_NE(src2, nullptr);
+
+  inputs.push_back(src1);
+  inputs.push_back(src2);
+  Buffer* out = compiler->NewBuffer(DT_EXECUTABLE);
+  ASSERT_NE(out, nullptr);
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, LinkLLVMBitcode_File_To_File)
+{
+  std::vector<Data*> inputs;
+  File* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
+  ASSERT_NE(ef1, nullptr);
+  File* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
+  ASSERT_NE(ef2, nullptr);
+
+  inputs.clear();
+  inputs.push_back(ef1);
+  File* out1 = TmpOutputFile(DT_LLVM_BC);
+  ASSERT_NE(out1, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out1, emptyOptions));
+  ASSERT_TRUE(FileExists(out1));
+
+  inputs.clear();
+  inputs.push_back(ef2);
+  File* out2 = TmpOutputFile(DT_LLVM_BC);
+  ASSERT_NE(out2, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out2, emptyOptions));
+  ASSERT_TRUE(FileExists(out2));
+
+  inputs.clear();
+  inputs.push_back(out1);
+  inputs.push_back(out2);
+  File* out = TmpOutputFile(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  ASSERT_TRUE(compiler->LinkLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(FileExists(out));
+}
+
+TEST_F(AMDGPUCompilerTest, LinkLLVMBitcode_Buffer_To_Buffer)
+{
+  std::vector<Data*> inputs;
+  Data* src1 = NewClSource(externFunction1);
+  ASSERT_NE(src1, nullptr);
+  Data* src2 = NewClSource(externFunction2);
+  ASSERT_NE(src2, nullptr);
+
+  inputs.clear();
+  inputs.push_back(src1);
+  Buffer* out1 = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out1, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out1, emptyOptions));
+  ASSERT_TRUE(!out1->IsEmpty());
+
+  inputs.clear();
+  inputs.push_back(src2);
+  Buffer* out2 = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out2, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out2, emptyOptions));
+  ASSERT_TRUE(!out2->IsEmpty());
+
+  inputs.clear();
+  inputs.push_back(out1);
+  inputs.push_back(out2);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  ASSERT_TRUE(compiler->LinkLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
 TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
 {
   std::vector<Data*> inputs;
@@ -149,12 +252,14 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
   File* out1 = TmpOutputFile(DT_LLVM_BC);
   ASSERT_NE(out1, nullptr);
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out1, emptyOptions));
+  ASSERT_TRUE(FileExists(out1));
 
   inputs.clear();
   inputs.push_back(ef2);
   File* out2 = TmpOutputFile(DT_LLVM_BC);
-  ASSERT_NE(out1, nullptr);
+  ASSERT_NE(out2, nullptr);
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out2, emptyOptions));
+  ASSERT_TRUE(FileExists(out2));
 
   inputs.clear();
   inputs.push_back(out1);
@@ -163,5 +268,36 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
   ASSERT_NE(out, nullptr);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
   ASSERT_TRUE(FileExists(out));
+}
+
+TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_Buffer_To_Buffer)
+{
+  std::vector<Data*> inputs;
+  Data* src1 = NewClSource(externFunction1);
+  ASSERT_NE(src1, nullptr);
+  Data* src2 = NewClSource(externFunction2);
+  ASSERT_NE(src2, nullptr);
+
+  inputs.clear();
+  inputs.push_back(src1);
+  Buffer* out1 = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out1, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out1, emptyOptions));
+  ASSERT_TRUE(!out1->IsEmpty());
+
+  inputs.clear();
+  inputs.push_back(src2);
+  Buffer* out2 = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out2, nullptr);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out2, emptyOptions));
+  ASSERT_TRUE(!out2->IsEmpty());
+
+  inputs.clear();
+  inputs.push_back(out1);
+  inputs.push_back(out2);
+  Buffer* out = compiler->NewBuffer(DT_EXECUTABLE);
+  ASSERT_NE(out, nullptr);
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
 }
 

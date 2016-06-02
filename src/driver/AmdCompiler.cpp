@@ -113,8 +113,8 @@ private:
   TextDiagnosticPrinter* diagClient;
   IntrusiveRefCntPtr<DiagnosticIDs> diagID;
   DiagnosticsEngine diags;
-  std::unique_ptr<Driver> driver;
   std::vector<Data*> datas;
+  std::string llvmBin;
   std::string llvmLinkExe;
 
   template <typename T>
@@ -159,15 +159,13 @@ void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
   args.push_back("-v");
 }
 
-AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin)
+AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
   : diagOpts(new DiagnosticOptions()),
     diagClient(new TextDiagnosticPrinter(llvm::errs(), &*diagOpts)),
     diags(diagID, &*diagOpts, &*diagClient),
-    driver(new Driver(llvmBin + "/clang", "amdgcn-amd-amdhsa", diags)),
+    llvmBin(llvmBin_),
     llvmLinkExe(llvmBin + "/llvm-link")
 {
-  driver->setTitle("AMDGPU OpenCL driver");
-  driver->setCheckInputsExist(false);
 }
 
 AMDGPUCompiler::~AMDGPUCompiler()
@@ -177,6 +175,9 @@ AMDGPUCompiler::~AMDGPUCompiler()
 
 bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
 {
+  std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", "amdgcn-amd-amdhsa", diags));
+  driver->setTitle("AMDGPU OpenCL driver");
+  driver->setCheckInputsExist(false);
   errs() << "All arguments: ";
   for (const char* arg : args) {
     errs() << "\"" << arg << "\" ";
@@ -360,7 +361,9 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     args.push_back(s.c_str());
   }
 
-  return InvokeLLVMLink(args);
+  bool res = InvokeLLVMLink(args);
+  if (res) { output->ReadOutputFile(outputFile); }
+  return res;
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options)
@@ -380,8 +383,9 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
     args.push_back(s.c_str());
   }
 
-
-  return InvokeDriver(args);
+  bool res = InvokeDriver(args);
+  if (res) { output->ReadOutputFile(outputFile); }
+  return res;
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options)

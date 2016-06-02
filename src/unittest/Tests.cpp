@@ -53,6 +53,10 @@ protected:
     return compiler->NewTempFile(type);
   }
 
+  Data* NewClSource(const char* s) {
+    return compiler->NewBufferReference(DT_CL, s, strlen(s));
+  }
+
   CompilerDriver driver;
   Compiler* compiler;
 };
@@ -64,6 +68,14 @@ static const std::string outBc = "out.bc";
 static const std::string out1Bc = "out1.bc";
 static const std::string out2Bc = "out2.bc";
 static const std::string outCo = "out.co";
+
+static const char* simpleSource =
+"kernel void test_kernel(global int* out)              \n"
+"{                                                     \n"
+"  out[0] = 4;                                         \n"
+"}                                                     \n"
+;
+
 
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
 {
@@ -81,6 +93,20 @@ TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_File_To_File)
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, emptyOptions));
   ASSERT_TRUE(FileExists(out));
 }
+
+/*
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Buffer_To_Buffer)
+{
+  Data* src = NewClSource(simpleSource);
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+*/
 
 TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_File_To_File)
 {
@@ -109,7 +135,6 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_File_To_File)
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
   ASSERT_TRUE(FileExists(out));
 }
-
 
 TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
 {

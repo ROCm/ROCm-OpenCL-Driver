@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <cassert>
 
 namespace amd {
 
@@ -12,6 +13,10 @@ enum DataType {
   DT_LLVM_LL,
   DT_EXECUTABLE,
 };
+
+class File;
+
+class Compiler;
 
 class Data {
 private:
@@ -23,6 +28,9 @@ public:
   virtual ~Data() {}
   DataType Type() const { return type; }
   virtual bool IsReadOnly() const = 0;
+  virtual File* ToInputFile(Compiler* comp) = 0;
+  virtual File* ToOutputFile(Compiler* comp) = 0;
+  virtual bool ReadOutputFile(File* f) = 0;
 };
 
 class File : public Data {
@@ -37,6 +45,12 @@ public:
 
   bool IsReadOnly() const override { return readonly; }
   const std::string& Name() const { return name; }
+
+  File* ToInputFile(Compiler* comp) override { return this; }
+  File* ToOutputFile(Compiler* comp) override { assert(!readonly); return this; }
+  bool ReadOutputFile(File* f) override { assert(this == f); return true; }
+
+  bool WriteData(const char* ptr, size_t size);
 };
 
 class BufferReference : public Data {
@@ -52,6 +66,9 @@ public:
   bool IsReadOnly() const override { return true; }
   const char* Ptr() const { return ptr; }
   size_t Size() const { return size; }
+  File* ToInputFile(Compiler* comp) override;
+  File* ToOutputFile(Compiler* comp) override;
+  bool ReadOutputFile(File* f) override { assert(false); return false; }
 };
 
 class Buffer : public Data {
@@ -65,6 +82,11 @@ public:
   bool IsReadOnly() const override { return false; }
   std::vector<char>& Buf() { return buf; }
   const std::vector<char>& Buf() const { return buf; }
+  size_t Size() const { return buf.size(); }
+  bool IsEmpty() const { return buf.size() == 0; }
+  File* ToInputFile(Compiler* comp) override;
+  File* ToOutputFile(Compiler* comp) override;
+  bool ReadOutputFile(File* f) override;
 };
 
 class LLVMModule : public Data {
@@ -82,9 +104,9 @@ public:
 
   virtual File* NewTempFile(DataType type) = 0;
 
-  virtual Data* NewBufferReference(DataType type, const char* ptr, size_t size) = 0;
+  virtual BufferReference* NewBufferReference(DataType type, const char* ptr, size_t size) = 0;
 
-  virtual Data* NewBuffer(DataType type) = 0;
+  virtual Buffer* NewBuffer(DataType type) = 0;
 
   virtual bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
 

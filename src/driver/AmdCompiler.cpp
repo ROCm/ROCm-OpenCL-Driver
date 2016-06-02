@@ -3,6 +3,7 @@
 
 #include "AmdCompiler.h"
 #include <cstdio>
+#include <fstream>
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Program.h"
@@ -33,6 +34,28 @@ using namespace clang::driver;
 
 namespace amd {
 
+const char* DataTypeExt(DataType type)
+{
+  switch (type) {
+  case DT_CL: return "cl";
+  case DT_LLVM_BC: return "bc";
+  case DT_LLVM_LL: return "ll";
+  case DT_EXECUTABLE: return "bc";
+  default:
+    assert(false); return 0;
+  }
+}
+
+bool File::WriteData(const char* ptr, size_t size)
+{
+  using namespace std;
+  ofstream out(name.c_str(), ios::out | ios::trunc | ios::binary);
+  if (!out.good()) { return false; }
+  out.write(ptr, size);
+  if (!out.good()) { return false; }
+  return true;
+}
+
 class TempFile : public File {
 public:
   TempFile(DataType type, const std::string& name)
@@ -43,6 +66,45 @@ public:
 TempFile::~TempFile()
 {
   std::remove(Name().c_str());
+}
+
+File* BufferReference::ToInputFile(Compiler* comp)
+{
+  File* f = comp->NewTempFile(Type());
+  if (!f->WriteData(ptr, size)) { delete f; return 0; }
+  return f;
+}
+
+File* BufferReference::ToOutputFile(Compiler* comp)
+{
+  assert(false);
+  return 0;
+}
+
+File* Buffer::ToInputFile(Compiler* comp)
+{
+  File* f = comp->NewTempFile(Type());
+  if (!f->WriteData(&buf[0], buf.size())) { delete f; return 0; }
+  return f;
+}
+
+File* Buffer::ToOutputFile(Compiler* comp)
+{
+  File* f = comp->NewTempFile(Type());
+  return f;
+}
+
+bool Buffer::ReadOutputFile(File* f)
+{
+  using namespace std;
+  ifstream in(f->Name().c_str(), ios::in | ios::binary | ios::ate);
+  if (!in.good()) { return false; }
+  streampos size = in.tellg();
+  in.seekg(0, ios::beg);
+  buf.reserve(size);
+  buf.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  if (!in.good()) { return false; }
+  return true;
 }
 
 class AMDGPUCompiler : public Compiler {
@@ -79,9 +141,9 @@ public:
 
   File* NewTempFile(DataType type) override;
 
-  Data* NewBufferReference(DataType type, const char* ptr, size_t size) override;
+  BufferReference* NewBufferReference(DataType type, const char* ptr, size_t size) override;
 
-  Data* NewBuffer(DataType type) override;
+  Buffer* NewBuffer(DataType type) override;
 
   bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
@@ -190,14 +252,12 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
 
 File* AMDGPUCompiler::ToInputFile(Data* input)
 {
-  // TODO: convert arbitrary Data to temporary file if needed.
-  return (File*) input;
+  return input->ToInputFile(this);
 }
 
 File* AMDGPUCompiler::ToOutputFile(Data* output)
 {
-  // TODO: convert arbitrary Data to temporary file if needed.
-  return (File*) output;
+  return output->ToOutputFile(this);
 }
 
 File* AMDGPUCompiler::NewInputFile(DataType type, const std::string& path)
@@ -208,18 +268,6 @@ File* AMDGPUCompiler::NewInputFile(DataType type, const std::string& path)
 File* AMDGPUCompiler::NewOutputFile(DataType type, const std::string& path)
 {
   return AddData(new File(type, path, false));
-}
-
-const char* DataTypeExt(DataType type)
-{
-  switch (type) {
-  case DT_CL: return "cl";
-  case DT_LLVM_BC: return "bc";
-  case DT_LLVM_LL: return "ll";
-  case DT_EXECUTABLE: return "bc";
-  default:
-    assert(false); return 0;
-  }
 }
 
 File* AMDGPUCompiler::NewTempFile(DataType type)
@@ -248,14 +296,14 @@ File* AMDGPUCompiler::NewTempFile(DataType type)
   return AddData(new TempFile(type, name));
 }
 
-Data* AMDGPUCompiler::NewBufferReference(DataType type, const char* ptr, size_t size)
+BufferReference* AMDGPUCompiler::NewBufferReference(DataType type, const char* ptr, size_t size)
 {
-  return 0;
+  return AddData(new BufferReference(type, ptr, size));
 }
 
-Data* AMDGPUCompiler::NewBuffer(DataType type)
+Buffer* AMDGPUCompiler::NewBuffer(DataType type)
 {
-  return 0;
+  return AddData(new Buffer(type));
 }
 
 bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options)
@@ -277,7 +325,9 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     args.push_back(s.c_str());
   }
 
-  return InvokeDriver(args);
+  bool res = InvokeDriver(args);
+  if (res) { output->ReadOutputFile(bcFile); }
+  return res;
 }
 
 const std::vector<std::string> emptyOptions;

@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
   std::vector<Data*> inputs;
 
   for (const std::string& inputFile : InputFilenames) {
-    inputs.push_back(compiler->NewInputFile(DT_CL, inputFile));
+    inputs.push_back(compiler->NewFileReference(DT_CL, inputFile));
   }
   
   std::vector<std::string> options = OtherOptions;
@@ -63,15 +63,15 @@ int main(int argc, char* argv[])
     errs() << "Error: action is not specified.\n"; res = false;
     break;
   case AC_CompileToLLVMBitcode:
-    output = compiler->NewOutputFile(DT_LLVM_BC, OutputFilename);
+    output = compiler->NewFile(DT_LLVM_BC, OutputFilename);
     res = compiler->CompileToLLVMBitcode(inputs, output, options);
     break;
   case AC_LinkLLVMBitcode:
-    output = compiler->NewOutputFile(DT_LLVM_BC, OutputFilename);
+    output = compiler->NewFile(DT_LLVM_BC, OutputFilename);
     res = compiler->LinkLLVMBitcode(inputs, output, options);
     break;
   case AC_CompileAndLinkExecutable:
-    output = compiler->NewOutputFile(DT_EXECUTABLE, OutputFilename);
+    output = compiler->NewFile(DT_EXECUTABLE, OutputFilename);
     res = compiler->CompileAndLinkExecutable(inputs, output, options);
     break;
   }

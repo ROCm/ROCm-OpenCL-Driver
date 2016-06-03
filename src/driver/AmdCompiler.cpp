@@ -65,7 +65,7 @@ const char* DataTypeExt(DataType type)
 bool File::WriteData(const char* ptr, size_t size)
 {
   using namespace std;
-  ofstream out(name.c_str(), ios::out | ios::trunc | ios::binary);
+  ofstream out(Name().c_str(), ios::out | ios::trunc | ios::binary);
   if (!out.good()) { return false; }
   out.write(ptr, size);
   if (!out.good()) { return false; }
@@ -90,7 +90,7 @@ bool File::Exists() const
 class TempFile : public File {
 public:
   TempFile(DataType type, const std::string& name)
-    : File(type, name, false) {}
+    : File(type, name) {}
   ~TempFile();
 };
 
@@ -102,7 +102,7 @@ TempFile::~TempFile()
 class TempDir : public File {
 public:
   TempDir(const std::string& name)
-    : File(DT_DIR, name, true) {}
+    : File(DT_DIR, name) {}
   ~TempDir();
 };
 
@@ -115,10 +115,10 @@ TempDir::~TempDir()
 #endif // _WIN32
 }
 
-File* BufferReference::ToInputFile(Compiler* comp, File *parent)
+FileReference* BufferReference::ToInputFile(Compiler* comp, File *parent)
 {
   File* f;
-  f = comp->NewTempFile(Type(), parent, Id());
+  f = comp->NewTempFile(Type(), Id(), parent);
   if (!f) { return 0; }
   if (!f->WriteData(ptr, size)) { return 0; }
   return f;
@@ -130,7 +130,7 @@ File* BufferReference::ToOutputFile(Compiler* comp, File *parent)
   return 0;
 }
 
-File* Buffer::ToInputFile(Compiler* comp, File *parent)
+FileReference* Buffer::ToInputFile(Compiler* comp, File *parent)
 {
   File* f = comp->NewTempFile(Type());
   if (!f->WriteData(&buf[0], buf.size())) { delete f; return 0; }
@@ -139,7 +139,7 @@ File* Buffer::ToInputFile(Compiler* comp, File *parent)
 
 File* Buffer::ToOutputFile(Compiler* comp, File* parent)
 {
-  File* f = comp->NewTempFile(Type(), parent);
+  File* f = comp->NewTempFile(Type(), "", parent);
   return f;
 }
 
@@ -180,7 +180,7 @@ private:
     return compilerTempDir;
   }
 
-  File* ToInputFile(Data* input, File *parent);
+  FileReference* ToInputFile(Data* input, File *parent);
   File* ToOutputFile(Data* output, File *parent);
 
   bool CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options);
@@ -192,13 +192,11 @@ public:
 
   std::string Output() override { return std::string(); }
 
-  File* NewFile(DataType type, const std::string& name, File* parent = 0, bool readonly = false) override;
+  FileReference* NewFileReference(DataType type, const std::string& path, File* parent = 0) override;
 
-  File* NewInputFile(DataType type, const std::string& path, File* parent = 0) override;
+  File* NewFile(DataType type, const std::string& name, File* parent = 0) override;
 
-  File* NewOutputFile(DataType type, const std::string& path, File* parent = 0) override;
-
-  File* NewTempFile(DataType type, File* parent = 0, const std::string& name = "") override;
+  File* NewTempFile(DataType type, const std::string& name = "", File* parent = 0) override;
 
   File* NewTempDir(File* parent = 0) override;
 
@@ -315,7 +313,7 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
   return true;
 }
 
-File* AMDGPUCompiler::ToInputFile(Data* input, File *parent)
+FileReference* AMDGPUCompiler::ToInputFile(Data* input, File *parent)
 {
   return input->ToInputFile(this, parent);
 }
@@ -325,23 +323,16 @@ File* AMDGPUCompiler::ToOutputFile(Data* output, File* parent)
   return output->ToOutputFile(this, parent);
 }
 
-File* AMDGPUCompiler::NewFile(DataType type, const std::string& name, File* parent, bool readonly)
+File* AMDGPUCompiler::NewFile(DataType type, const std::string& name, File* parent)
 {
   std::string fname = parent ? joinf(parent->Name(), name) : name;
-  if (FileExists(fname)) { return 0; }
-  return AddData(new File(type, fname, readonly));
+  return AddData(new File(type, fname));
 }
 
-File* AMDGPUCompiler::NewInputFile(DataType type, const std::string& name, File* parent)
+FileReference* AMDGPUCompiler::NewFileReference(DataType type, const std::string& name, File* parent)
 {
   std::string fname = parent ? joinf(parent->Name(), name) : name;
-  return AddData(new File(type, fname, true));
-}
-
-File* AMDGPUCompiler::NewOutputFile(DataType type, const std::string& name, File* parent)
-{
-  std::string fname = parent ? joinf(parent->Name(), name) : name;
-  return AddData(new File(type, fname, false));
+  return AddData(new FileReference(type, fname));
 }
 
 class TempFiles {
@@ -391,7 +382,7 @@ public:
   }
 };
 
-File* AMDGPUCompiler::NewTempFile(DataType type, File* parent, const std::string& name)
+File* AMDGPUCompiler::NewTempFile(DataType type, const std::string& name, File* parent)
 {
   if (!parent) { parent = CompilerTempDir(); }
   const char* dir = parent->Name().c_str();
@@ -435,7 +426,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
   args.push_back("-c");
   args.push_back("-emit-llvm");
 
-  File* inputFile = ToInputFile(input, CompilerTempDir());
+  FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());
 
   File* bcFile = ToOutputFile(output, CompilerTempDir());
@@ -486,7 +477,7 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
 {
   std::vector<const char*> args;
   for (Data* input : inputs) {
-    File* inputFile = ToInputFile(input, CompilerTempDir());
+    FileReference* inputFile = ToInputFile(input, CompilerTempDir());
     args.push_back(inputFile->Name().c_str());
   }
   File* outputFile = ToOutputFile(output, CompilerTempDir());
@@ -506,7 +497,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
 
   AddCommonArgs(args);
 
-  File* inputFile = ToInputFile(input, CompilerTempDir());
+  FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());
 
   File* outputFile = ToOutputFile(output, CompilerTempDir());

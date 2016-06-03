@@ -30,8 +30,8 @@ protected:
     delete compiler;
   }
 
-  File* TestDirInputFile(DataType type, const std::string& name) {
-    return compiler->NewInputFile(type, joinf(testDir, name));
+  FileReference* TestDirInputFile(DataType type, const std::string& name) {
+    return compiler->NewFileReference(type, joinf(testDir, name));
   }
 
   File* TmpOutputFile(DataType type) {
@@ -104,7 +104,7 @@ TEST_F(AMDGPUCompilerTest, OutputEmpty)
 
 TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_File_To_File)
 {
-  File* f = TestDirInputFile(DT_CL, simpleCl);
+  FileReference* f = TestDirInputFile(DT_CL, simpleCl);
   ASSERT_NE(f, nullptr);
   File* out = TmpOutputFile(DT_LLVM_BC);
   ASSERT_NE(out, nullptr);
@@ -157,7 +157,7 @@ TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Include_I2)
 
 TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_File_To_File)
 {
-  File* f = TestDirInputFile(DT_CL, simpleCl);
+  FileReference* f = TestDirInputFile(DT_CL, simpleCl);
   ASSERT_NE(f, nullptr);
   File* out = TmpOutputFile(DT_EXECUTABLE);
   ASSERT_NE(out, nullptr);
@@ -182,9 +182,9 @@ TEST_F(AMDGPUCompilerTest, CompileAndLinkExecutable_Buffer_To_Buffer)
 TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_File_To_File)
 {
   std::vector<Data*> inputs;
-  File* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
+  FileReference* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
   ASSERT_NE(ef1, nullptr);
-  File* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
+  FileReference* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
   ASSERT_NE(ef2, nullptr);
 
   inputs.push_back(ef1);
@@ -214,9 +214,9 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_CLs_Buffer_To_Buffer)
 TEST_F(AMDGPUCompilerTest, LinkLLVMBitcode_File_To_File)
 {
   std::vector<Data*> inputs;
-  File* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
+  FileReference* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
   ASSERT_NE(ef1, nullptr);
-  File* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
+  FileReference* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
   ASSERT_NE(ef2, nullptr);
 
   inputs.clear();
@@ -276,9 +276,9 @@ TEST_F(AMDGPUCompilerTest, LinkLLVMBitcode_Buffer_To_Buffer)
 TEST_F(AMDGPUCompilerTest, CompileAndLink_BCs_File_To_File)
 {
   std::vector<Data*> inputs;
-  File* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
+  FileReference* ef1 = TestDirInputFile(DT_CL, externFunction1Cl);
   ASSERT_NE(ef1, nullptr);
-  File* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
+  FileReference* ef2 = TestDirInputFile(DT_CL, externFunction2Cl);
   ASSERT_NE(ef2, nullptr);
 
   inputs.clear();

@@ -16,6 +16,7 @@ enum DataType {
   DT_DIR,
 };
 
+class FileReference;
 class File;
 
 class Compiler;
@@ -32,30 +33,41 @@ public:
   DataType Type() const { return type; }
   const std::string& Id() const { return id; }
   virtual bool IsReadOnly() const = 0;
-  virtual File* ToInputFile(Compiler* comp, File *parent) = 0;
+  virtual FileReference* ToInputFile(Compiler* comp, File *parent) = 0;
   virtual File* ToOutputFile(Compiler* comp, File *parent) = 0;
   virtual bool ReadOutputFile(File* f) = 0;
 };
 
 bool FileExists(const std::string& name);
 
-class File : public Data {
+class FileReference : public Data {
 private:
   std::string name;
+
+public:
+  FileReference(DataType type, const std::string& name_)
+    : Data(type),
+      name(name_) {}
+
+  bool IsReadOnly() const override { return true; }
+  const std::string& Name() const { return name; }
+  FileReference* ToInputFile(Compiler* comp, File *parent) override { return this; }
+  File* ToOutputFile(Compiler* comp, File *parent) override { assert(false); return 0; }
+  bool ReadOutputFile(File* f) override { assert(false); return false; }
+  bool Exists() const;
+};
+
+class File : public FileReference {
+private:
   bool readonly;
 
 public:
-  File(DataType type, const std::string& name_, bool readonly_ = false)
-    : Data(type),
-      name(name_), readonly(readonly_) {}
+  File(DataType type, const std::string& name)
+    : FileReference(type, name) {}
 
-  bool IsReadOnly() const override { return readonly; }
-  const std::string& Name() const { return name; }
-
-  File* ToInputFile(Compiler* comp, File *parent) override { return this; }
-  File* ToOutputFile(Compiler* comp, File *parent) override { assert(!readonly); return this; }
+  bool IsReadOnly() const override { return false; }
+  File* ToOutputFile(Compiler* comp, File *parent) override { return this; }
   bool ReadOutputFile(File* f) override { assert(this == f); return true; }
-
   bool WriteData(const char* ptr, size_t size);
   bool Exists() const;
 };
@@ -73,7 +85,7 @@ public:
   bool IsReadOnly() const override { return true; }
   const char* Ptr() const { return ptr; }
   size_t Size() const { return size; }
-  File* ToInputFile(Compiler* comp, File *parent) override;
+  FileReference* ToInputFile(Compiler* comp, File *parent) override;
   File* ToOutputFile(Compiler* comp, File *parent) override;
   bool ReadOutputFile(File* f) override { assert(false); return false; }
 };
@@ -91,7 +103,7 @@ public:
   const std::vector<char>& Buf() const { return buf; }
   size_t Size() const { return buf.size(); }
   bool IsEmpty() const { return buf.size() == 0; }
-  File* ToInputFile(Compiler* comp, File *parent) override;
+  FileReference* ToInputFile(Compiler* comp, File *parent) override;
   File* ToOutputFile(Compiler* comp, File *parent) override;
   bool ReadOutputFile(File* f) override;
 };
@@ -105,13 +117,11 @@ public:
 
   virtual std::string Output() = 0;
 
-  virtual File* NewFile(DataType type, const std::string& name, File* parent = 0, bool readonly = false) = 0;
+  virtual FileReference* NewFileReference(DataType type, const std::string& name, File* parent = 0) = 0;
 
-  virtual File* NewInputFile(DataType type, const std::string& path, File* parent = 0) = 0;
+  virtual File* NewFile(DataType type, const std::string& name, File* parent = 0) = 0;
 
-  virtual File* NewOutputFile(DataType type, const std::string& path, File* parent = 0) = 0;
-
-  virtual File* NewTempFile(DataType type, File* parent = 0, const std::string& id = "") = 0;
+  virtual File* NewTempFile(DataType type, const std::string& name = "", File* parent = 0) = 0;
 
   virtual File* NewTempDir(File* parent = 0) = 0;
 

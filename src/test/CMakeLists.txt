@@ -58,6 +58,8 @@ endmacro()
 
 set(SIMPLE ${CMAKE_CURRENT_SOURCE_DIR}/simple.cl)
 set(EXTERN_FUNCTION ${CMAKE_CURRENT_SOURCE_DIR}/extern_function1.cl ${CMAKE_CURRENT_SOURCE_DIR}/extern_function2.cl)
+set(INCLUDER ${CMAKE_CURRENT_SOURCE_DIR}/includer.cl)
+set(INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 roc_cl_test(simple:compile_to_llvm -compile_to_llvm ${SIMPLE} -o out.bc)
 roc_cl_test(simple:compile_to_llvm-g -compile_to_llvm ${SIMPLE} -g -o out.bc)
@@ -76,3 +78,7 @@ roc_cl_test(simple:compile_to_llvm-cl-denorms-are-zero -compile_to_llvm ${SIMPLE
 roc_cl_test(simple:compile_and_link -compile_and_link ${SIMPLE} -o out.co)
 roc_cl_test(extern_function:compile_to_llvm -compile_to_llvm ${EXTERN_FUNCTION} -o out.bc)
 roc_cl_test(extern_function:compile_and_link -compile_and_link ${EXTERN_FUNCTION} -o out.co)
+roc_cl_test(include-I1:compile_to_llvm -compile_to_llvm ${INCLUDER} -I${INCLUDE} -o out.bc)
+roc_cl_test(include-I1:compile_and_link -compile_and_link ${INCLUDER} -I${INCLUDE} -o out.co)
+#roc_cl_test(include-I2:compile_to_llvm -compile_to_llvm ${INCLUDER} -I ${INCLUDE} -o out.bc)
+#oc_cl_test(include-I2:compile_and_link -compile_and_link ${INCLUDER} -I ${INCLUDE} -o out.co)

@@ -92,6 +92,22 @@ static const char* externFunction2 =
 "}                                                     \n"
 ;
 
+static const char* includer = 
+"#include \"include.h\"                                \n"
+"                                                      \n"
+"kernel void test_kernel(global int* out)              \n"
+"{                                                     \n"
+"  out[0] = test_function();                           \n"
+"}                                                     \n"
+;
+
+static const char* include =
+"int test_function()                                   \n"
+"{                                                     \n"
+"  return 5;                                           \n"
+"}                                                     \n"
+;
+
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
 {
   EXPECT_EQ(compiler->Output().length(), 0);
@@ -118,6 +134,35 @@ TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Buffer_To_Buffer)
   std::vector<Data*> inputs;
   inputs.push_back(src);
   ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Include_I1)
+{
+  Data* src = NewClSource(includer);
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  std::vector<std::string> options;
+  options.push_back("-I");
+  options.push_back(joinf(testDir, "include"));
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, options));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Include_I2)
+{
+  Data* src = NewClSource(includer);
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  std::vector<std::string> options;
+  options.push_back("-I" + joinf(testDir, "include"));
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, options));
   ASSERT_TRUE(!out->IsEmpty());
 }
 

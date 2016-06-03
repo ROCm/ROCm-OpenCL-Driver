@@ -9,6 +9,7 @@ namespace amd {
 
 enum DataType {
   DT_CL,
+  DT_CL_HEADER,
   DT_LLVM_BC,
   DT_LLVM_LL,
   DT_EXECUTABLE,
@@ -21,18 +22,22 @@ class Compiler;
 
 class Data {
 private:
+  std::string id;
   DataType type;
 
 public:
-  Data(DataType type_)
-    : type(type_) {}
+  Data(DataType type_, const std::string& id_ = "")
+    : type(type_), id(id_) {}
   virtual ~Data() {}
   DataType Type() const { return type; }
+  const std::string& Id() const { return id; }
   virtual bool IsReadOnly() const = 0;
-  virtual File* ToInputFile(Compiler* comp) = 0;
-  virtual File* ToOutputFile(Compiler* comp) = 0;
+  virtual File* ToInputFile(Compiler* comp, File *parent) = 0;
+  virtual File* ToOutputFile(Compiler* comp, File *parent) = 0;
   virtual bool ReadOutputFile(File* f) = 0;
 };
+
+bool FileExists(const std::string& name);
 
 class File : public Data {
 private:
@@ -47,11 +52,12 @@ public:
   bool IsReadOnly() const override { return readonly; }
   const std::string& Name() const { return name; }
 
-  File* ToInputFile(Compiler* comp) override { return this; }
-  File* ToOutputFile(Compiler* comp) override { assert(!readonly); return this; }
+  File* ToInputFile(Compiler* comp, File *parent) override { return this; }
+  File* ToOutputFile(Compiler* comp, File *parent) override { assert(!readonly); return this; }
   bool ReadOutputFile(File* f) override { assert(this == f); return true; }
 
   bool WriteData(const char* ptr, size_t size);
+  bool Exists() const;
 };
 
 class BufferReference : public Data {
@@ -60,15 +66,15 @@ private:
   size_t size;
 
 public:
-  BufferReference(DataType type, const char* ptr_, size_t size_)
-    : Data(type),
+  BufferReference(DataType type, const char* ptr_, size_t size_, const std::string& id)
+    : Data(type, id),
       ptr(ptr_), size(size_) {}
 
   bool IsReadOnly() const override { return true; }
   const char* Ptr() const { return ptr; }
   size_t Size() const { return size; }
-  File* ToInputFile(Compiler* comp) override;
-  File* ToOutputFile(Compiler* comp) override;
+  File* ToInputFile(Compiler* comp, File *parent) override;
+  File* ToOutputFile(Compiler* comp, File *parent) override;
   bool ReadOutputFile(File* f) override { assert(false); return false; }
 };
 
@@ -85,8 +91,8 @@ public:
   const std::vector<char>& Buf() const { return buf; }
   size_t Size() const { return buf.size(); }
   bool IsEmpty() const { return buf.size() == 0; }
-  File* ToInputFile(Compiler* comp) override;
-  File* ToOutputFile(Compiler* comp) override;
+  File* ToInputFile(Compiler* comp, File *parent) override;
+  File* ToOutputFile(Compiler* comp, File *parent) override;
   bool ReadOutputFile(File* f) override;
 };
 
@@ -99,15 +105,17 @@ public:
 
   virtual std::string Output() = 0;
 
-  virtual File* NewInputFile(DataType type, const std::string& path) = 0;
+  virtual File* NewFile(DataType type, const std::string& name, File* parent = 0, bool readonly = false) = 0;
 
-  virtual File* NewOutputFile(DataType type, const std::string& path) = 0;
+  virtual File* NewInputFile(DataType type, const std::string& path, File* parent = 0) = 0;
+
+  virtual File* NewOutputFile(DataType type, const std::string& path, File* parent = 0) = 0;
 
   virtual File* NewTempFile(DataType type, File* parent = 0) = 0;
 
   virtual File* NewTempDir(File* parent = 0) = 0;
 
-  virtual BufferReference* NewBufferReference(DataType type, const char* ptr, size_t size) = 0;
+  virtual BufferReference* NewBufferReference(DataType type, const char* ptr, size_t size, const std::string& id = "") = 0;
 
   virtual Buffer* NewBuffer(DataType type) = 0;
 

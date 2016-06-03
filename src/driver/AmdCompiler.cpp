@@ -4,6 +4,7 @@
 #include "AmdCompiler.h"
 #include <cstdio>
 #include <fstream>
+#include <cstdlib>
 
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Program.h"
@@ -20,12 +21,18 @@
 #include "clang/Basic/VirtualFileSystem.h"
 // #include "clang/Tooling/Tooling.h"
 
+#include <sstream>
+
 #ifdef _WIN32
-#include "windows.h"
-#include "io.h"
+#include <windows.h>
+#include <io.h>
+#include <process.h>
 #else
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #endif
 
 using namespace llvm;
@@ -66,6 +73,22 @@ public:
 TempFile::~TempFile()
 {
   std::remove(Name().c_str());
+}
+
+class TempDir : public File {
+public:
+  TempDir(const std::string& name)
+    : File(DT_DIR, name, true) {}
+  ~TempDir();
+};
+
+TempDir::~TempDir()
+{
+#ifdef _WIN32
+  RemoveDirectory(Name().c_str());
+#else // _WIN32
+  rmdir(Name().c_str());
+#endif // _WIN32
 }
 
 File* BufferReference::ToInputFile(Compiler* comp)
@@ -116,12 +139,20 @@ private:
   std::vector<Data*> datas;
   std::string llvmBin;
   std::string llvmLinkExe;
+  File* compilerTempDir;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void AddCommonArgs(std::vector<const char*>& args);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeLLVMLink(ArrayRef<const char*> args);
+
+  File* CompilerTempDir() {
+    if (!compilerTempDir) {
+      compilerTempDir = NewTempDir();
+    }
+    return compilerTempDir;
+  }
 
   File* ToInputFile(Data* input);
   File* ToOutputFile(Data* output);
@@ -139,7 +170,9 @@ public:
 
   File* NewOutputFile(DataType type, const std::string& path) override;
 
-  File* NewTempFile(DataType type) override;
+  File* NewTempFile(DataType type, File* parent) override;
+
+  File* NewTempDir(File* parent = 0) override;
 
   BufferReference* NewBufferReference(DataType type, const char* ptr, size_t size) override;
 
@@ -164,13 +197,16 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     diagClient(new TextDiagnosticPrinter(llvm::errs(), &*diagOpts)),
     diags(diagID, &*diagOpts, &*diagClient),
     llvmBin(llvmBin_),
-    llvmLinkExe(llvmBin + "/llvm-link")
+    llvmLinkExe(llvmBin + "/llvm-link"),
+    compilerTempDir(0)
 {
 }
 
 AMDGPUCompiler::~AMDGPUCompiler()
 {
-  for (Data* d : datas) { delete d; }
+  for (size_t i = datas.size(); i > 0; --i) {
+    delete datas[i-1];
+  }
 }
 
 bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
@@ -271,30 +307,74 @@ File* AMDGPUCompiler::NewOutputFile(DataType type, const std::string& path)
   return AddData(new File(type, path, false));
 }
 
-File* AMDGPUCompiler::NewTempFile(DataType type)
-{
-  const char* ext = DataTypeExt(type);
-  static int counter = 1;
-  static char templ[] = "AMD_tmp_XXXXXX";
-  char fname[15];
-  strcpy(fname, templ);
-  mktemp(fname);
-  std::string name(fname);
-  name += "_";
-  name += std::to_string((counter++));
-  name += ".";
-  name += ext;
+class TempFiles {
+private:
+#ifdef _WIN32
+  char tempDir[MAX_PATH];
+#else // _WIN32
+  const char* tempDir;
+#endif // _WIN32
+
+public:
+  TempFiles() {
+#ifdef _WIN32
+    if (!GetTempPath(MAX_PATH, tempDir)) {
+      assert(!"GetTempPath failed");
+    }
+#else
+    tempDir = getenv("TMPDIR");
+#ifdef P_tmpdir
+    if (!tempDir) {
+      tempDir = P_tmpdir;
+    }
+#endif // P_tmpdir
+    if (!tempDir) {
+      tempDir = "/tmp";
+    }
+#endif
+  }
+
+  static const TempFiles& Instance() {
+    static TempFiles instance;
+    return instance;
+  }
 
 #ifdef _WIN32
-  char buf[MAX_PATH];
-  if (GetTempPath(MAX_PATH, buf) != 0) {
-    name = std::string(buf) + name;
-  }
-#else
-  name = "/tmp/" + name;
+  #define getpid _getpid
 #endif
 
+  std::string NewTempName(const char* dir, const char* prefix, const char* ext, bool pid = true) const {
+    static std::atomic_size_t counter(1);
+
+    if (!dir) { dir = tempDir; }
+    std::ostringstream name;
+    name << dir << "/" << prefix << getpid() << "_" << counter++;
+    if (ext) { name << "." << ext; }
+    return name.str();
+  }
+};
+
+File* AMDGPUCompiler::NewTempFile(DataType type, File* parent = 0)
+{
+  if (!parent) { parent = CompilerTempDir(); }
+  const char* dir = parent->Name().c_str();
+  const char* ext = DataTypeExt(type);
+  bool pid = !parent;
+  std::string name = TempFiles::Instance().NewTempName(dir, "t_", ext, pid);
   return AddData(new TempFile(type, name));
+}
+
+File* AMDGPUCompiler::NewTempDir(File* parent)
+{
+  const char* dir = parent ? parent->Name().c_str() : 0;
+  bool pid = !parent;
+  std::string name = TempFiles::Instance().NewTempName(dir, "AMD_", 0, pid);
+#ifdef _WIN32
+  CreateDirectory(name.c_str(), NULL);
+#else // _WIN32
+  mkdir(name.c_str(), 0700);
+#endif // _WIN32
+  return AddData(new TempDir(name));
 }
 
 BufferReference* AMDGPUCompiler::NewBufferReference(DataType type, const char* ptr, size_t size)

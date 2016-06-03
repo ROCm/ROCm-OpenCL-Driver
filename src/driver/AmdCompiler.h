@@ -12,6 +12,7 @@ enum DataType {
   DT_LLVM_BC,
   DT_LLVM_LL,
   DT_EXECUTABLE,
+  DT_DIR,
 };
 
 class File;
@@ -102,7 +103,9 @@ public:
 
   virtual File* NewOutputFile(DataType type, const std::string& path) = 0;
 
-  virtual File* NewTempFile(DataType type) = 0;
+  virtual File* NewTempFile(DataType type, File* parent = 0) = 0;
+
+  virtual File* NewTempDir(File* parent = 0) = 0;
 
   virtual BufferReference* NewBufferReference(DataType type, const char* ptr, size_t size) = 0;
 

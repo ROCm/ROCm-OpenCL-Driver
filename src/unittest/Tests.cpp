@@ -93,6 +93,10 @@ static const char* include =
 "}                                                     \n"
 ;
 
+static const char* includeInvalid =
+"Invalid include file (should not be used)."
+;
+
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
 {
   EXPECT_EQ(compiler->Output().length(), 0);
@@ -355,6 +359,38 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_EmbeddedInclude)
   std::vector<Data*> inputs;
   inputs.push_back(src);
   inputs.push_back(inc);
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_EmbeddedIncludeOverride)
+{
+  Data* src = NewClSource(includer);
+  ASSERT_NE(src, nullptr);
+  Data* inc = compiler->NewBufferReference(DT_CL_HEADER, include, strlen(include), "include.h");
+  Data* inc2 = compiler->NewBufferReference(DT_CL_HEADER, includeInvalid, strlen(includeInvalid), "include.h");
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  inputs.push_back(inc);
+  inputs.push_back(inc2);
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileAndLink_EmbeddedIncludeOverride)
+{
+  Data* src = NewClSource(includer);
+  ASSERT_NE(src, nullptr);
+  Data* inc = compiler->NewBufferReference(DT_CL_HEADER, include, strlen(include), "include.h");
+  Data* inc2 = compiler->NewBufferReference(DT_CL_HEADER, includeInvalid, strlen(includeInvalid), "include.h");
+  Buffer* out = compiler->NewBuffer(DT_EXECUTABLE);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  inputs.push_back(inc);
+  inputs.push_back(inc2);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
   ASSERT_TRUE(!out->IsEmpty());
 }

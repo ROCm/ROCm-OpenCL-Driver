@@ -118,12 +118,9 @@ TempDir::~TempDir()
 File* BufferReference::ToInputFile(Compiler* comp, File *parent)
 {
   File* f;
-  if (!Id().empty()) {
-    f = comp->NewFile(Type(), Id(), parent);
-  } else {
-    f = comp->NewTempFile(Type(), parent);
-  }
-  if (!f->WriteData(ptr, size)) { delete f; return 0; }
+  f = comp->NewTempFile(Type(), parent, Id());
+  if (!f) { return 0; }
+  if (!f->WriteData(ptr, size)) { return 0; }
   return f;
 }
 
@@ -201,7 +198,7 @@ public:
 
   File* NewOutputFile(DataType type, const std::string& path, File* parent = 0) override;
 
-  File* NewTempFile(DataType type, File* parent) override;
+  File* NewTempFile(DataType type, File* parent = 0, const std::string& name = "") override;
 
   File* NewTempDir(File* parent = 0) override;
 
@@ -331,6 +328,7 @@ File* AMDGPUCompiler::ToOutputFile(Data* output, File* parent)
 File* AMDGPUCompiler::NewFile(DataType type, const std::string& name, File* parent, bool readonly)
 {
   std::string fname = parent ? joinf(parent->Name(), name) : name;
+  if (FileExists(fname)) { return 0; }
   return AddData(new File(type, fname, readonly));
 }
 
@@ -393,14 +391,17 @@ public:
   }
 };
 
-File* AMDGPUCompiler::NewTempFile(DataType type, File* parent = 0)
+File* AMDGPUCompiler::NewTempFile(DataType type, File* parent, const std::string& name)
 {
   if (!parent) { parent = CompilerTempDir(); }
   const char* dir = parent->Name().c_str();
   const char* ext = DataTypeExt(type);
   bool pid = !parent;
-  std::string name = TempFiles::Instance().NewTempName(dir, "t_", ext, pid);
-  return AddData(new TempFile(type, name));
+  std::string fname = name.empty() ?
+                        TempFiles::Instance().NewTempName(dir, "t_", ext, pid) :
+                        joinf(parent->Name(), name);
+  if (FileExists(fname)) { return 0; }
+  return AddData(new TempFile(type, fname));
 }
 
 File* AMDGPUCompiler::NewTempDir(File* parent)
@@ -467,7 +468,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data
           includeDir = NewTempDir(CompilerTempDir());
           xoptions.push_back("-I" + includeDir->Name());
         }
-        File* header = ToInputFile(input, includeDir);
+        ToInputFile(input, includeDir);
       }
     }
     for (const std::string& o : options) { xoptions.push_back(o); }

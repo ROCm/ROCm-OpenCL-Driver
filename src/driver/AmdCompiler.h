@@ -111,7 +111,7 @@ public:
 
   virtual File* NewOutputFile(DataType type, const std::string& path, File* parent = 0) = 0;
 
-  virtual File* NewTempFile(DataType type, File* parent = 0) = 0;
+  virtual File* NewTempFile(DataType type, File* parent = 0, const std::string& id = "") = 0;
 
   virtual File* NewTempDir(File* parent = 0) = 0;
 

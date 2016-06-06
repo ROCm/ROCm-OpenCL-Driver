@@ -97,6 +97,13 @@ static const char* includeInvalid =
 "Invalid include file (should not be used)."
 ;
 
+static const char* defined =
+"kernel void test_kernel(global int* out)              \n"
+"{                                                     \n"
+"  out[0] = DEF;                                       \n"
+"}                                                     \n"
+;
+
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
 {
   EXPECT_EQ(compiler->Output().length(), 0);
@@ -392,5 +399,63 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_EmbeddedIncludeOverride)
   inputs.push_back(inc);
   inputs.push_back(inc2);
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Define1)
+{
+  Data* src = compiler->NewBufferReference(DT_CL, defined, strlen(defined));
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  std::vector<std::string> options;
+  options.push_back("-DDEF=10");
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, options));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileAndLink_Define1)
+{
+  Data* src = compiler->NewBufferReference(DT_CL, defined, strlen(defined));
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_EXECUTABLE);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  std::vector<std::string> options;
+  options.push_back("-DDEF=10");
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, options));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Define2)
+{
+  Data* src = compiler->NewBufferReference(DT_CL, defined, strlen(defined));
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  std::vector<std::string> options;
+  options.push_back("-D");
+  options.push_back("DEF=10");
+  ASSERT_TRUE(compiler->CompileToLLVMBitcode(inputs, out, options));
+  ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileAndLink_Define2)
+{
+  Data* src = compiler->NewBufferReference(DT_CL, defined, strlen(defined));
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_EXECUTABLE);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  std::vector<std::string> options;
+  options.push_back("-D");
+  options.push_back("DEF=10");
+  ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, options));
   ASSERT_TRUE(!out->IsEmpty());
 }

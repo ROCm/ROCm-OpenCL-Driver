@@ -17,3 +17,5 @@ The following build steps are performed:
     make
     make test
 
+This assumes that LLVM_DIR points to dist directory, so we recommend to make sure LLVM is configured
+with -DCMAKE_INSTALL_PREFIX=dist and 'make install' is run.

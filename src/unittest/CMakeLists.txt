@@ -49,7 +49,10 @@ ExternalProject_Add(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest
     TIMEOUT 10
-    CMAKE_ARGS -DBUILD_GTEST=ON -DBUILD_GMOCK=OFF -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+    CMAKE_ARGS
+      -DBUILD_GTEST=ON -DBUILD_GMOCK=OFF
+      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}
+      -Dgtest_force_shared_crt=ON
     # Disable install step
     INSTALL_COMMAND ""
     # Wrap download, configure and build steps in a script to log output
@@ -59,12 +62,8 @@ ExternalProject_Add(
 
 ExternalProject_Get_Property(googletest source_dir)
 include_directories(${source_dir}/googletest/include)
-IF(MSVC)
-link_directories(${source_dir}/googletest/msvc/gtest-md/$(Configuration))
-ELSE()
 ExternalProject_Get_Property(googletest binary_dir)
 link_directories(${binary_dir}/googletest)
-ENDIF()
 
 #include(${GTEST_INCLUDE_DIRS})
 file(GLOB sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
@@ -73,14 +72,7 @@ link_directories(${LLVM_LIBRARY_DIRS})
 add_executable(roc-cl-unittest ${sources})
 add_dependencies(roc-cl-unittest googletest)
 target_link_libraries(roc-cl-unittest opencl_driver)
-IF(MSVC)
-target_link_libraries(roc-cl-unittest gtestd gtest_main-mdd)
-IF (NOT DEFINED ENV{LLVM_BINARY_DIR})
-   SET(LLVM_BINARY_DIR ${LLVMBIN}/..)
-ENDIF()
-ELSE()
 target_link_libraries(roc-cl-unittest gtest gtest_main)
-ENDIF()
 target_link_libraries(roc-cl-unittest ${CMAKE_THREAD_LIBS_INIT})
 
 add_test(NAME roc-cl-unittest

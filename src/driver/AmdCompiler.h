@@ -233,7 +233,7 @@ public:
  * CompilerFactory does not own Compiler's that it creates. They should be
  * destroyed with delete.
  */
-class CompilerDriver {
+class CompilerFactory {
 public:
   /*
    * Create new instance of OpenCL compiler with AMDGPU backend.

@@ -43,9 +43,9 @@ int main(int argc, char* argv[])
 {
   cl::ParseCommandLineOptions(argc, argv, "AMD OpenCL Compiler");
 
-  CompilerDriver compilerDriver;
+  CompilerFactory compilerFactory;
 
-  std::unique_ptr<Compiler> compiler(compilerDriver.CreateAMDGPUCompiler(LLVMBin));
+  std::unique_ptr<Compiler> compiler(compilerFactory.CreateAMDGPUCompiler(LLVMBin));
 
   std::vector<Data*> inputs;
 

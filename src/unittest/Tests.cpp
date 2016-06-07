@@ -23,7 +23,7 @@ protected:
     llvmBin = getenv("LLVM_BIN");
     ASSERT_NE(getenv("TEST_DIR"), nullptr);
     testDir = getenv("TEST_DIR");
-    compiler = driver.CreateAMDGPUCompiler(llvmBin);
+    compiler = compilerFactory.CreateAMDGPUCompiler(llvmBin);
   }
 
   virtual void TearDown() {
@@ -42,7 +42,7 @@ protected:
     return compiler->NewBufferReference(DT_CL, s, strlen(s));
   }
 
-  CompilerDriver driver;
+  CompilerFactory compilerFactory;
   Compiler* compiler;
 };
 

@@ -524,7 +524,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
   }
 }
 
-Compiler* CompilerDriver::CreateAMDGPUCompiler(const std::string& llvmBin)
+Compiler* CompilerFactory::CreateAMDGPUCompiler(const std::string& llvmBin)
 {
   return new AMDGPUCompiler(llvmBin);
 }

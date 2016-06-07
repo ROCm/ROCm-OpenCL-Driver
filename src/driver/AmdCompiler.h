@@ -72,9 +72,6 @@ public:
  * File is a file that can also be modified.
  */
 class File : public FileReference {
-private:
-  bool readonly;
-
 public:
   File(DataType type, const std::string& name)
     : FileReference(type, name) {}

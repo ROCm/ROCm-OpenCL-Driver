@@ -76,5 +76,10 @@ int main(int argc, char* argv[])
     break;
   }
 
+  std::string compilerOutput = compiler->Output();
+  if (!compilerOutput.empty()) {
+    outs() << compilerOutput << '\n';
+  }
+
   return res ? 0 : 1;
 }

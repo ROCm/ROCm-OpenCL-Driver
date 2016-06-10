@@ -1,5 +1,5 @@
+#include <iostream>
 #include "gtest/gtest.h"
-
 #include "AmdCompiler.h"
 
 using namespace amd;
@@ -27,6 +27,11 @@ protected:
   }
 
   virtual void TearDown() {
+    std::string compilerOutput = compiler->Output();
+    if (!compilerOutput.empty()) {
+      std::cout << "Compiler output" << std::endl
+                << compilerOutput << std::endl;
+    }
     delete compiler;
   }
 

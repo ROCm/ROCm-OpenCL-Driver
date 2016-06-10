@@ -11,6 +11,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
@@ -158,6 +159,8 @@ bool Buffer::ReadOutputFile(File* f)
 
 class AMDGPUCompiler : public Compiler {
 private:
+  std::string output;
+  llvm::raw_string_ostream OS;
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts;
   TextDiagnosticPrinter* diagClient;
   IntrusiveRefCntPtr<DiagnosticIDs> diagID;
@@ -166,6 +169,7 @@ private:
   std::string llvmBin;
   std::string llvmLinkExe;
   File* compilerTempDir;
+  bool debug;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
@@ -190,7 +194,7 @@ public:
   AMDGPUCompiler(const std::string& llvmBin);
   ~AMDGPUCompiler();
 
-  std::string Output() override { return std::string(); }
+  std::string Output() override { OS.flush(); return output; }
 
   FileReference* NewFileReference(DataType type, const std::string& path, File* parent = 0) override;
 
@@ -215,16 +219,18 @@ void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
 {
   args.push_back("-x cl");
   args.push_back("-Xclang"); args.push_back("-cl-std=CL1.2");
-  args.push_back("-v");
+//  args.push_back("-v");
 }
 
 AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
-  : diagOpts(new DiagnosticOptions()),
-    diagClient(new TextDiagnosticPrinter(llvm::errs(), &*diagOpts)),
+  : OS(output),
+    diagOpts(new DiagnosticOptions()),
+    diagClient(new TextDiagnosticPrinter(OS, &*diagOpts)),
     diags(diagID, &*diagOpts, &*diagClient),
     llvmBin(llvmBin_),
     llvmLinkExe(llvmBin + "/llvm-link"),
-    compilerTempDir(0)
+    compilerTempDir(0),
+    debug(false)
 {
 }
 
@@ -240,11 +246,13 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
   std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", "amdgcn-amd-amdhsa", diags));
   driver->setTitle("AMDGPU OpenCL driver");
   driver->setCheckInputsExist(false);
-  errs() << "All arguments: ";
-  for (const char* arg : args) {
-    errs() << "\"" << arg << "\" ";
+  if (debug) {
+    OS << "InvokeDriver: ";
+    for (const char* arg : args) {
+      OS << "\"" << arg << "\" ";
+    }
+    OS << "\n";
   }
-  errs() << "\n";
   std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
 
   int Res = 0;
@@ -272,7 +280,9 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
     }
   }
 
-  driver->PrintActions(*C);
+  if (debug) {
+    driver->PrintActions(*C);
+  }
 
 //  const DiagnosticsEngine &diags = driver->getDiags();
 //  DiagnosticConsumer *diagCons = const_cast<DiagnosticConsumer*>(diags.getClient());
@@ -294,17 +304,19 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
 {
   SmallVector<const char*, 128> args1;
   args1.push_back(llvmLinkExe.c_str());
-  args1.push_back("-v");
+//  args1.push_back("-v");
   for (const char *arg : args) { args1.push_back(arg); }
   args1.push_back(nullptr);
-  errs() << "All arguments: ";
-  errs() << llvmLinkExe << "\n";
-  for (const char* arg : args1) {
-    if (arg) {
-      errs() << "\"" << arg << "\" ";
+  if (debug) {
+    OS << "InvokeLLVMLink: ";
+    OS << llvmLinkExe << "\n";
+    for (const char* arg : args1) {
+      if (arg) {
+        OS << "\"" << arg << "\" ";
+      }
     }
+    OS << "\n\n";
   }
-  errs() << "\n\n";
 
   int res = llvm::sys::ExecuteAndWait(llvmLinkExe, args1.data());
   if (res != 0) {

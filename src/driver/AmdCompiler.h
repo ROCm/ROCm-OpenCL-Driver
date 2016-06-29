@@ -36,7 +36,7 @@ private:
 
 public:
   Data(DataType type_, const std::string& id_ = "")
-    : type(type_), id(id_) {}
+    : id(id_), type(type_) {}
   virtual ~Data() {}
   DataType Type() const { return type; }
   const std::string& Id() const { return id; }

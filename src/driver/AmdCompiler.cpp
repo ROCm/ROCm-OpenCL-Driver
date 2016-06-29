@@ -512,7 +512,6 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data
   } else {
     std::vector<Data*> bcFiles;
     std::vector<std::string> xoptions;
-    bool hasHeader = false;
     File* includeDir = 0;
     for (Data* input : inputs) {
       if (input->Type() == DT_CL_HEADER) {

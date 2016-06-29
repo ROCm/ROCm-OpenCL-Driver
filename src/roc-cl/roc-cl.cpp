@@ -60,6 +60,7 @@ int main(int argc, char* argv[])
 
   switch (Action) {
   case AC_NotSet:
+  default:
     errs() << "Error: action is not specified.\n"; res = false;
     break;
   case AC_CompileToLLVMBitcode:

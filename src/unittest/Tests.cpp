@@ -29,7 +29,7 @@ protected:
   virtual void TearDown() {
     std::string compilerOutput = compiler->Output();
     if (!compilerOutput.empty()) {
-      std::cout << "Compiler output" << std::endl
+      std::cout << "Compiler output:" << std::endl
                 << compilerOutput << std::endl;
     }
     delete compiler;
@@ -107,6 +107,14 @@ static const char* defined =
 "{                                                     \n"
 "  out[0] = DEF;                                       \n"
 "}                                                     \n"
+;
+
+static const char* invalidCL =
+"kernel void test() { ExpectedErrorInCLSource; }       \n"
+;
+
+static const char* invalidBC=
+"ExpectedInvalidBitcode                                \n"
 ;
 
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
@@ -463,4 +471,44 @@ TEST_F(AMDGPUCompilerTest, CompileAndLink_Define2)
   options.push_back("DEF=10");
   ASSERT_TRUE(compiler->CompileAndLinkExecutable(inputs, out, options));
   ASSERT_TRUE(!out->IsEmpty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_Error_InvalidCL)
+{
+  Data* src = compiler->NewBufferReference(DT_CL, invalidCL, strlen(invalidCL));
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  ASSERT_FALSE(compiler->CompileToLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(out->IsEmpty());
+  ASSERT_TRUE(!compiler->Output().empty());
+}
+
+TEST_F(AMDGPUCompilerTest, CompileAndLink_Error_InvalidCL)
+{
+  Data* src = compiler->NewBufferReference(DT_CL, invalidCL, strlen(invalidCL));
+  ASSERT_NE(src, nullptr);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  std::vector<Data*> inputs;
+  inputs.push_back(src);
+  ASSERT_FALSE(compiler->CompileAndLinkExecutable(inputs, out, emptyOptions));
+  ASSERT_TRUE(out->IsEmpty());
+  ASSERT_TRUE(!compiler->Output().empty());
+}
+
+TEST_F(AMDGPUCompilerTest, LinkLLVMBitcode_Error_InvalidBC)
+{
+  Data* src = compiler->NewBufferReference(DT_LLVM_BC, invalidBC, strlen(invalidBC));
+  std::vector<Data*> inputs;
+
+  inputs.push_back(src);
+  inputs.push_back(src);
+  Buffer* out = compiler->NewBuffer(DT_LLVM_BC);
+  ASSERT_NE(out, nullptr);
+  ASSERT_FALSE(compiler->LinkLLVMBitcode(inputs, out, emptyOptions));
+  ASSERT_TRUE(out->IsEmpty());
+  ASSERT_TRUE(!compiler->Output().empty());
 }

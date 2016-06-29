@@ -17,7 +17,7 @@ enum DataType {
   DT_LLVM_BC,
   DT_LLVM_LL,
   DT_EXECUTABLE,
-  DT_DIR,
+  DT_INTERNAL,
 };
 
 class FileReference;
@@ -65,6 +65,7 @@ public:
   FileReference* ToInputFile(Compiler* comp, File *parent) override { return this; }
   File* ToOutputFile(Compiler* comp, File *parent) override { assert(false); return 0; }
   bool ReadOutputFile(File* f) override { assert(false); return false; }
+  bool ReadToString(std::string& s);
   bool Exists() const;
 };
 

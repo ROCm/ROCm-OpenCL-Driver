@@ -58,6 +58,7 @@ const char* DataTypeExt(DataType type)
   case DT_LLVM_BC: return "bc";
   case DT_LLVM_LL: return "ll";
   case DT_EXECUTABLE: return "bc";
+  case DT_INTERNAL: return 0;
   default:
     assert(false); return 0;
   }
@@ -103,7 +104,7 @@ TempFile::~TempFile()
 class TempDir : public File {
 public:
   TempDir(const std::string& name)
-    : File(DT_DIR, name) {}
+    : File(DT_INTERNAL, name) {}
   ~TempDir();
 };
 
@@ -123,6 +124,19 @@ FileReference* BufferReference::ToInputFile(Compiler* comp, File *parent)
   if (!f) { return 0; }
   if (!f->WriteData(ptr, size)) { return 0; }
   return f;
+}
+
+bool FileReference::ReadToString(std::string& s)
+{
+  using namespace std;
+  ifstream in(Name().c_str(), ios::in | ios::binary | ios::ate);
+  if (!in.good()) { return false; }
+  streampos size = in.tellg();
+  in.seekg(0, ios::beg);
+  s.reserve(size);
+  s.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  if (!in.good()) { return false; }
+  return true;
 }
 
 File* BufferReference::ToOutputFile(Compiler* comp, File *parent)
@@ -255,6 +269,16 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
   }
   std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
 
+  File* out = NewTempFile(DT_INTERNAL);
+  File* err = NewTempFile(DT_INTERNAL);
+
+  const StringRef** Redirects = new const StringRef*[3];
+  Redirects[0] = nullptr;
+  Redirects[1] = new StringRef(out->Name());
+  Redirects[2] = new StringRef(err->Name());
+
+  C->Redirect(Redirects);
+
   int Res = 0;
   SmallVector<std::pair<int, const Command *>, 4> failingCommands;
   if (C.get()) {
@@ -283,6 +307,13 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
   if (debug) {
     driver->PrintActions(*C);
   }
+
+  std::string outStr, errStr;
+  out->ReadToString(outStr);
+  err->ReadToString(errStr);
+
+  if (!outStr.empty()) { OS << outStr; }
+  if (!errStr.empty()) { OS << errStr; }
 
 //  const DiagnosticsEngine &diags = driver->getDiags();
 //  DiagnosticConsumer *diagCons = const_cast<DiagnosticConsumer*>(diags.getClient());
@@ -318,7 +349,25 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
     OS << "\n\n";
   }
 
-  int res = llvm::sys::ExecuteAndWait(llvmLinkExe, args1.data());
+  File* out = NewTempFile(DT_INTERNAL);
+  File* err = NewTempFile(DT_INTERNAL);
+
+  const StringRef** Redirects = new const StringRef*[3];
+  Redirects[0] = nullptr;
+  Redirects[1] = new StringRef(out->Name());
+  Redirects[2] = new StringRef(err->Name());
+
+
+  int res = llvm::sys::ExecuteAndWait(llvmLinkExe, args1.data(), nullptr, Redirects);
+
+  std::string outStr, errStr;
+  out->ReadToString(outStr);
+  err->ReadToString(errStr);
+
+  if (!outStr.empty()) { OS << outStr; }
+  if (!errStr.empty()) { OS << errStr; }
+
+
   if (res != 0) {
     return false;
   }

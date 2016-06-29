@@ -6,6 +6,7 @@
 #include <cassert>
 
 namespace amd {
+namespace opencl_driver {
 
 /*
  * DataType is a kind of input, output or intermediate represenation 
@@ -242,6 +243,7 @@ public:
   Compiler* CreateAMDGPUCompiler(const std::string& llvmBin);
 };
 
+}
 }
 
 #endif // AMD_COMPILER_DRIVER_H

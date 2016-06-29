@@ -36,7 +36,7 @@ OutputFilename("o", cl::desc("Output filename"),
 static cl::list<std::string>
 OtherOptions(cl::Sink, cl::desc("<other options>"));
 
-using namespace amd;
+using namespace amd::opencl_driver;
 using namespace llvm;
 
 int main(int argc, char* argv[])

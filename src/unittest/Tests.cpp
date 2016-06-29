@@ -2,7 +2,7 @@
 #include "gtest/gtest.h"
 #include "AmdCompiler.h"
 
-using namespace amd;
+using namespace amd::opencl_driver;
 
 static std::string joinf(const std::string& p1, const std::string& p2)
 {

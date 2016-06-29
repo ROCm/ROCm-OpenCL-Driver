@@ -41,6 +41,7 @@ using namespace clang;
 using namespace clang::driver;
 
 namespace amd {
+namespace opencl_driver {
 
 static std::string joinf(const std::string& p1, const std::string& p2)
 {
@@ -589,4 +590,5 @@ Compiler* CompilerFactory::CreateAMDGPUCompiler(const std::string& llvmBin)
   return new AMDGPUCompiler(llvmBin);
 }
 
+}
 }

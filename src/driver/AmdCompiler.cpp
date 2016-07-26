@@ -483,7 +483,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
 
   AddCommonArgs(args);
   args.push_back("-c");
-  args.push_back("-emit-llvm");
+  args.push_back("-emit-llvm-bc");
 
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());

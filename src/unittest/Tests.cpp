@@ -119,7 +119,7 @@ static const char* invalidBC=
 
 TEST_F(AMDGPUCompilerTest, OutputEmpty)
 {
-  EXPECT_EQ(compiler->Output().length(), 0);
+  EXPECT_EQ(compiler->Output().length(), 0U);
 }
 
 TEST_F(AMDGPUCompilerTest, CompileToLLVMBitcode_File_To_File)

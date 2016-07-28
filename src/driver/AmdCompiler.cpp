@@ -255,7 +255,7 @@ AMDGPUCompiler::~AMDGPUCompiler()
 
 bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
 {
-  std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", "amdgcn-amd-amdhsa", diags));
+  std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", "amdgcn--amdhsa", diags));
   driver->setTitle("AMDGPU OpenCL driver");
   driver->setCheckInputsExist(false);
   if (debug) {

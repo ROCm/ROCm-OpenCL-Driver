@@ -188,6 +188,7 @@ private:
   void AddCommonArgs(std::vector<const char*>& args);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeLLVMLink(ArrayRef<const char*> args);
+  bool InvokeOpt(ArrayRef<const char*> args);
 
   File* CompilerTempDir() {
     if (!compilerTempDir) {
@@ -223,6 +224,8 @@ public:
   bool CompileToLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
   bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
+
+  bool OptimizeLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options) override;
 
   bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 };
@@ -358,6 +361,50 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
 
 
   int res = llvm::sys::ExecuteAndWait(llvmLinkExe, args1.data(), nullptr, Redirects);
+
+  std::string outStr, errStr;
+  out->ReadToString(outStr);
+  err->ReadToString(errStr);
+
+  if (!outStr.empty()) { OS << outStr; }
+  if (!errStr.empty()) { OS << errStr; }
+
+
+  if (res != 0) {
+    return false;
+  }
+  return true;
+}
+
+bool AMDGPUCompiler::InvokeOpt(ArrayRef<const char*> args)
+{
+  SmallVector<const char*, 128> args1;
+  std::string optExe(llvmBin + "/opt");
+  args1.push_back(optExe.c_str());
+
+  for (const char *arg : args) { args1.push_back(arg); }
+  args1.push_back(nullptr);
+  if (debug) {
+    OS << "InvokeOpt: ";
+    OS << optExe << "\n";
+    for (const char* arg : args1) {
+      if (arg) {
+        OS << "\"" << arg << "\" ";
+      }
+    }
+    OS << "\n\n";
+  }
+
+  File* out = NewTempFile(DT_INTERNAL);
+  File* err = NewTempFile(DT_INTERNAL);
+
+  const StringRef** Redirects = new const StringRef*[3];
+  Redirects[0] = nullptr;
+  Redirects[1] = new StringRef(out->Name());
+  Redirects[2] = new StringRef(err->Name());
+
+
+  int res = llvm::sys::ExecuteAndWait(optExe, args1.data(), nullptr, Redirects);
 
   std::string outStr, errStr;
   out->ReadToString(outStr);
@@ -546,6 +593,23 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   }
 
   bool res = InvokeLLVMLink(args);
+  if (res) { output->ReadOutputFile(outputFile); }
+  return res;
+}
+
+bool AMDGPUCompiler::OptimizeLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options)
+{
+  std::vector<const char*> args;
+  FileReference* inputFile = ToInputFile(input, CompilerTempDir());
+  args.push_back(inputFile->Name().c_str());
+
+  File* outputFile = ToOutputFile(output, CompilerTempDir());
+  args.push_back("-o"); args.push_back(outputFile->Name().c_str());
+  for (const std::string& s : options) {
+    args.push_back(s.c_str());
+  }
+
+  bool res = InvokeOpt(args);
   if (res) { output->ReadOutputFile(outputFile); }
   return res;
 }

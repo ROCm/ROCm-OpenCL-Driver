@@ -217,16 +217,6 @@ public:
   virtual bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
 
   /*
-   * Optimize one LLVM Bitcode input.
-   *
-   * The input should have one of types DT_LLVM_BC, DT_LLVM_LL.
-   * output should have one of types DT_LLVM_BC, DT_LLVM_LL
-   *
-   * Returns true on success or false on failure.
-   */
-  virtual bool OptimizeLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options) = 0;
-
-  /*
    * Compile several inputs directly to executable object.
 
    * Each input should have one of types DT_CL, DT_CL_HEADER, DT_LLVM_BC, DT_LLVM_LL.

@@ -47,7 +47,7 @@ file(GLOB sources
   ${CMAKE_CURRENT_SOURCE_DIR}/*.h
 )
 
-include_directories(${LLVM_INCLUDE_DIRS})
+include_directories(${LLVM_INCLUDE_DIR})
 link_directories(${LLVM_LIBRARY_DIRS})
 add_executable(roc-cl ${sources})
 target_link_libraries(roc-cl opencl_driver)

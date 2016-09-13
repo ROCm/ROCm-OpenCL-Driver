@@ -75,12 +75,12 @@ roc_cl_test(simple:compile_to_llvm-cl-no-signed-zeros -compile_to_llvm ${SIMPLE}
 roc_cl_test(simple:compile_to_llvm-cl-std-1.2 -compile_to_llvm ${SIMPLE} -cl-std=CL1.2 -o out.bc)
 roc_cl_test(simple:compile_to_llvm-cl-std-2.0 -compile_to_llvm ${SIMPLE} -cl-std=CL2.0 -o out.bc)
 roc_cl_test(simple:compile_to_llvm-cl-denorms-are-zero -compile_to_llvm ${SIMPLE} -cl-denorms-are-zero -o out.bc)
-#roc_cl_test(simple:compile_to_llvm-cl-fp32-correctly-rounded-divide-sqrt -compile_to_llvm ${SIMPLE} -cl-fp32-correctly-rounded-divide-sqrt -o out.bc)
+roc_cl_test(simple:compile_to_llvm-cl-fp32-correctly-rounded-divide-sqrt -compile_to_llvm ${SIMPLE} -cl-fp32-correctly-rounded-divide-sqrt -o out.bc)
 roc_cl_test(simple:compile_and_link -compile_and_link ${SIMPLE} -o out.co)
 
 set(EXTERN_FUNCTION ${CMAKE_CURRENT_SOURCE_DIR}/extern_function1.cl ${CMAKE_CURRENT_SOURCE_DIR}/extern_function2.cl)
-roc_cl_test(extern_function:compile_to_llvm -compile_to_llvm ${EXTERN_FUNCTION} -o out.bc)
-roc_cl_test(extern_function:compile_and_link -compile_and_link ${EXTERN_FUNCTION} -o out.co)
+roc_cl_test(extern_function:compile_to_llvm -compile_to_llvm ${EXTERN_FUNCTION} -o out.bc -cl-std=CL1.2)
+roc_cl_test(extern_function:compile_and_link -compile_and_link ${EXTERN_FUNCTION} -o out.co -cl-std=CL1.2)
 
 set(DEFINED ${CMAKE_CURRENT_SOURCE_DIR}/defined.cl)
 roc_cl_test(defined:compile_to_llvm ${DEFINED} -compile_to_llvm -DDEF=10 -o out.co)

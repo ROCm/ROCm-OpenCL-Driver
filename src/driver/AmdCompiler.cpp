@@ -230,7 +230,6 @@ public:
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
 {
   args.push_back("-x cl");
-  args.push_back("-Xclang"); args.push_back("-cl-std=CL1.2");
 //  args.push_back("-v");
 }
 
@@ -578,7 +577,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
     return CompileAndLinkExecutable(inputs[0], output, options);
   } else {
     File* bcFile = NewTempFile(DT_LLVM_BC);
-    if (!CompileToLLVMBitcode(inputs, bcFile, emptyOptions)) { return false; }
+    if (!CompileToLLVMBitcode(inputs, bcFile, options)) { return false; }
     return CompileAndLinkExecutable(bcFile, output, options);
   }
 }

@@ -22,6 +22,8 @@
 #include <sstream>
 
 #ifdef _WIN32
+#define NODRAWTEXT // avoids #define of DT_INTERNAL
+#define WIN32_LEAN_AND_MEAN 1
 #include <windows.h>
 #include <io.h>
 #include <process.h>

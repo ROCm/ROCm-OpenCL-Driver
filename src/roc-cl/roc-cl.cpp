@@ -18,8 +18,7 @@ Action(cl::desc("Action to perform:"),
        cl::values(
          clEnumValN(AC_CompileToLLVMBitcode, "compile_to_llvm", "Compile to LLVM bitcode"),
          clEnumValN(AC_LinkLLVMBitcode, "link_llvm", "Link LLVM bitcode"),
-         clEnumValN(AC_CompileAndLinkExecutable, "compile_and_link", "Compile and link executable"),
-         clEnumValEnd
+         clEnumValN(AC_CompileAndLinkExecutable, "compile_and_link", "Compile and link executable")
        )
       );
 

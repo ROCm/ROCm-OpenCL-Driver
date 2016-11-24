@@ -19,7 +19,31 @@
 #include "clang/Basic/VirtualFileSystem.h"
 // #include "clang/Tooling/Tooling.h"
 
+#include "AMDGPU.h"
+#include "Disassembler/CodeObjectDisassembler.h"
+
+#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCDisassembler/MCDisassembler.h"
+#include "llvm/MC/MCInstPrinter.h"
+#include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectFileInfo.h"
+#include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCStreamer.h"
+#include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/Object/Binary.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/Signals.h"
+#include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/Support/raw_ostream.h"
+
+
 #include <sstream>
+#include <iostream>
 
 #ifdef _WIN32
 #define NODRAWTEXT // avoids #define of DT_INTERNAL
@@ -36,6 +60,7 @@
 #endif
 
 using namespace llvm;
+using namespace llvm::object;
 using namespace clang;
 using namespace clang::driver;
 
@@ -203,6 +228,7 @@ private:
 
   bool CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options);
   bool CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options);
+  bool DumpExecutableAsText(Buffer* exec, File* dump) override;
 
 public:
   AMDGPUCompiler(const std::string& llvmBin);
@@ -245,6 +271,9 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     compilerTempDir(0),
     debug(false)
 {
+  LLVMInitializeAMDGPUTargetInfo();
+  LLVMInitializeAMDGPUTargetMC();
+  LLVMInitializeAMDGPUDisassembler();
 }
 
 AMDGPUCompiler::~AMDGPUCompiler()
@@ -582,6 +611,59 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
     if (!CompileToLLVMBitcode(inputs, bcFile, options)) { return false; }
     return CompileAndLinkExecutable(bcFile, output, options);
   }
+}
+
+bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump)
+{
+  StringRef TripleName = Triple::normalize("amdgcn-unknown-amdhsa");
+
+  StringRef execRef(exec->Ptr(), exec->Size());
+  std::unique_ptr<MemoryBuffer> execBuffer(MemoryBuffer::getMemBuffer(execRef, "", false));
+  Expected<std::unique_ptr<Binary>> execBinary = createBinary(*execBuffer);
+  if (!execBinary) { return false; }
+  std::unique_ptr<Binary> Binary(execBinary.get().release());
+  if (!Binary)
+    return false;
+
+  // setup context
+  const auto &TheTarget = getTheGCNTarget();
+
+  std::unique_ptr<MCRegisterInfo> MRI(TheTarget.createMCRegInfo(TripleName));
+  if (!MRI) { return false; }
+
+  std::unique_ptr<MCAsmInfo> AsmInfo(TheTarget.createMCAsmInfo(*MRI, TripleName));
+  if (!AsmInfo) { return false; }
+
+  std::unique_ptr<MCInstrInfo> MII(TheTarget.createMCInstrInfo());
+  if (!MII) { return false; }
+
+  MCObjectFileInfo MOFI;
+  MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
+  MOFI.InitMCObjectFileInfo(Triple(TripleName), false, CodeModel::Default, Ctx);
+
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+  MCInstPrinter *IP(TheTarget.createMCInstPrinter(Triple(TripleName),
+                                                  AsmPrinterVariant,
+                                                  *AsmInfo, *MII, *MRI));
+  if (!IP)
+    report_fatal_error("error: no instruction printer");
+
+  std::error_code EC;
+
+  raw_fd_ostream FO(dump->Name(), EC, sys::fs::F_None);
+
+  auto FOut = make_unique<formatted_raw_ostream>(FO);
+
+  std::unique_ptr<MCStreamer> MCS(
+    TheTarget.createAsmStreamer(Ctx, std::move(FOut), true, false, IP,
+                                nullptr, nullptr, false));
+
+  CodeObjectDisassembler CODisasm(&Ctx, TripleName, IP, MCS->getTargetStreamer());
+
+  EC = CODisasm.Disassemble(Binary->getMemoryBufferRef(), errs());
+  if (EC) { return false; }
+
+  return true;
 }
 
 Compiler* CompilerFactory::CreateAMDGPUCompiler(const std::string& llvmBin)

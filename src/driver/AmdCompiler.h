@@ -120,6 +120,7 @@ public:
   bool IsReadOnly() const override { return false; }
   std::vector<char>& Buf() { return buf; }
   const std::vector<char>& Buf() const { return buf; }
+  const char* Ptr() const { return &buf[0]; }
   size_t Size() const { return buf.size(); }
   bool IsEmpty() const { return buf.size() == 0; }
   FileReference* ToInputFile(Compiler* comp, File *parent) override;
@@ -225,6 +226,11 @@ public:
    * Returns true on success or false on failure.
    */
   virtual bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
+
+  /*
+   *
+   */
+  virtual bool DumpExecutableAsText(Buffer* exec, File* dump) = 0;
 };
 
 /*

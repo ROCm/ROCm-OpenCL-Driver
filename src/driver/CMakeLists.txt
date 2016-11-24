@@ -45,9 +45,26 @@ file(GLOB sources
   ${CMAKE_CURRENT_SOURCE_DIR}/*.h
 )
 
+include_directories(${LLVM_DIR}/lib/Target/AMDGPU/)
+include_directories(${LLVM_DIR}/../../lib/Target/AMDGPU/)
+include_directories(${LLVM_DIR}/../../../../../lib/Target/AMDGPU/)
+
 link_directories(${LLVM_LIBRARY_DIRS})
 add_library(opencl_driver ${sources})
-llvm_map_components_to_libnames(llvm_libs support core option)
+llvm_map_components_to_libnames(llvm_libs
+  AllTargetsAsmPrinters
+  AllTargetsDescs
+  AllTargetsDisassemblers
+  AllTargetsInfos
+  CodeGen
+  MC
+  MCDisassembler
+  Object
+  Symbolize
+  Core
+  Option
+  Support
+  )
 
 if (WIN32)
 target_link_libraries(opencl_driver version)

@@ -19,8 +19,8 @@
 #include "clang/Basic/VirtualFileSystem.h"
 // #include "clang/Tooling/Tooling.h"
 
-#include "AMDGPU.h"
-#include "Disassembler/CodeObjectDisassembler.h"
+#include "llvm/Target/AMDGPU/AMDGPU.h"
+#include "llvm/Target/AMDGPU/Disassembler/CodeObjectDisassembler.h"
 
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"

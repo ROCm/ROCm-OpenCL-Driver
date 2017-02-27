@@ -45,9 +45,7 @@ file(GLOB sources
   ${CMAKE_CURRENT_SOURCE_DIR}/*.h
 )
 
-include_directories(${LLVM_DIR}/lib/Target/AMDGPU/)
-include_directories(${LLVM_DIR}/../../lib/Target/AMDGPU/)
-include_directories(${LLVM_DIR}/../../../../../lib/Target/AMDGPU/)
+include_directories(${LLVM_INCLUDE_DIRS})
 
 link_directories(${LLVM_LIBRARY_DIRS})
 add_library(opencl_driver ${sources})

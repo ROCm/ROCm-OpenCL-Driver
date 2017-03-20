@@ -47,6 +47,8 @@ file(GLOB sources
 
 include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${LLVM_INCLUDE_DIRS}/llvm/Target/AMDGPU)
+include_directories(${LLVM_INCLUDE_DIR})
+include_directories(${LLVM_INCLUDE_DIR}/llvm/Target/AMDGPU)
 
 link_directories(${LLVM_LIBRARY_DIRS})
 add_library(opencl_driver ${sources})
@@ -78,6 +80,5 @@ target_link_libraries(opencl_driver
 )
 target_link_libraries(opencl_driver ${llvm_libs})
 target_include_directories(opencl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${LLVM_INCLUDE_DIR})
 
 install(TARGETS opencl_driver DESTINATION lib)

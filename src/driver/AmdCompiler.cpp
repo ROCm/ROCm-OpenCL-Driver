@@ -196,6 +196,53 @@ bool Buffer::ReadOutputFile(File* f)
   return true;
 }
 
+class TempFiles {
+private:
+#ifdef _WIN32
+  char tempDir[MAX_PATH];
+#else // _WIN32
+  const char* tempDir;
+#endif // _WIN32
+
+public:
+  TempFiles() {
+#ifdef _WIN32
+    if (!GetTempPath(MAX_PATH, tempDir)) {
+      assert(!"GetTempPath failed");
+    }
+#else
+    tempDir = getenv("TMPDIR");
+#ifdef P_tmpdir
+    if (!tempDir) {
+      tempDir = P_tmpdir;
+    }
+#endif // P_tmpdir
+    if (!tempDir) {
+      tempDir = "/tmp";
+    }
+#endif
+  }
+
+  static const TempFiles& Instance() {
+    static TempFiles instance;
+    return instance;
+  }
+
+#ifdef _WIN32
+#define getpid _getpid
+#endif
+
+  std::string NewTempName(const char* dir, const char* prefix, const char* ext, bool pid = true) const {
+    static std::atomic_size_t counter(1);
+
+    if (!dir) { dir = tempDir; }
+    std::ostringstream name;
+    name << dir << "/" << prefix << getpid() << "_" << counter++;
+    if (ext) { name << "." << ext; }
+    return name.str();
+  }
+};
+
 class AMDGPUCompiler : public Compiler {
 private:
   std::string output;
@@ -425,53 +472,6 @@ FileReference* AMDGPUCompiler::NewFileReference(DataType type, const std::string
   return AddData(new FileReference(type, fname));
 }
 
-class TempFiles {
-private:
-#ifdef _WIN32
-  char tempDir[MAX_PATH];
-#else // _WIN32
-  const char* tempDir;
-#endif // _WIN32
-
-public:
-  TempFiles() {
-#ifdef _WIN32
-    if (!GetTempPath(MAX_PATH, tempDir)) {
-      assert(!"GetTempPath failed");
-    }
-#else
-    tempDir = getenv("TMPDIR");
-#ifdef P_tmpdir
-    if (!tempDir) {
-      tempDir = P_tmpdir;
-    }
-#endif // P_tmpdir
-    if (!tempDir) {
-      tempDir = "/tmp";
-    }
-#endif
-  }
-
-  static const TempFiles& Instance() {
-    static TempFiles instance;
-    return instance;
-  }
-
-#ifdef _WIN32
-  #define getpid _getpid
-#endif
-
-  std::string NewTempName(const char* dir, const char* prefix, const char* ext, bool pid = true) const {
-    static std::atomic_size_t counter(1);
-
-    if (!dir) { dir = tempDir; }
-    std::ostringstream name;
-    name << dir << "/" << prefix << getpid() << "_" << counter++;
-    if (ext) { name << "." << ext; }
-    return name.str();
-  }
-};
-
 File* AMDGPUCompiler::NewTempFile(DataType type, const std::string& name, File* parent)
 {
   if (!parent) { parent = CompilerTempDir(); }
@@ -585,6 +585,10 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   std::vector<const char*> args;
 
   AddCommonArgs(args);
+
+  std::string smap = "-Wl,-Map=";
+  smap.append(TempFiles::Instance().NewTempName(0, "t_", "map"));
+  args.push_back(smap.c_str());
 
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());

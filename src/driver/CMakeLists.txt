@@ -52,6 +52,8 @@ include_directories(${LLVM_INCLUDE_DIR}/llvm/Target/AMDGPU)
 
 link_directories(${LLVM_LIBRARY_DIRS})
 add_library(opencl_driver ${sources})
+set_target_properties(opencl_driver PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 llvm_map_components_to_libnames(llvm_libs
   AllTargetsAsmPrinters
   AllTargetsDescs

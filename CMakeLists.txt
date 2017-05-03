@@ -59,7 +59,7 @@ include(AddLLVM)
 endif()
 
 if(UNIX)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti -Wall -Werror")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti -Wall")
   add_definitions(-D__STDC_LIMIT_MACROS)
   add_definitions(-D__STDC_CONSTANT_MACROS)
 endif()

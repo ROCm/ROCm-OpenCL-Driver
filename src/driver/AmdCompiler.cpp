@@ -83,6 +83,7 @@ const char* DataTypeExt(DataType type)
   case DT_LLVM_BC: return "bc";
   case DT_LLVM_LL: return "ll";
   case DT_EXECUTABLE: return "bc";
+  case DT_MAP: return "map";
   case DT_INTERNAL: return 0;
   default:
     assert(false); return 0;
@@ -586,8 +587,9 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
 
   AddCommonArgs(args);
 
+  File* mapFile = NewTempFile(DT_MAP, "", CompilerTempDir());
   std::string smap = "-Wl,-Map=";
-  smap.append(TempFiles::Instance().NewTempName(0, "t_", "map"));
+  smap.append(mapFile->Name().c_str());
   args.push_back(smap.c_str());
 
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());

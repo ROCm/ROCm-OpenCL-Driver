@@ -18,6 +18,7 @@ enum DataType {
   DT_LLVM_BC,
   DT_LLVM_LL,
   DT_EXECUTABLE,
+  DT_MAP,
   DT_INTERNAL,
 };
 

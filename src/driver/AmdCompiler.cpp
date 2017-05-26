@@ -68,6 +68,12 @@
 #include <sys/stat.h>
 #endif
 
+#define QUOTE(s) #s
+#define STRING(s) QUOTE(s)
+#ifndef AMDGCN_TRIPLE
+#define AMDGCN_TRIPLE amdgcn-amd-amdhsa-opencl
+#endif
+
 using namespace llvm;
 using namespace llvm::object;
 using namespace clang;
@@ -346,7 +352,7 @@ AMDGPUCompiler::~AMDGPUCompiler()
 
 bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
 {
-  std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", "amdgcn-amd-amdhsa-opencl", diags));
+  std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", STRING(AMDGCN_TRIPLE), diags));
   driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
   driver->setTitle("AMDGPU OpenCL driver");
   driver->setCheckInputsExist(false);
@@ -681,7 +687,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
 
 bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump)
 {
-  StringRef TripleName = Triple::normalize("amdgcn-unknown-amdhsa");
+  StringRef TripleName = Triple::normalize(STRING(AMDGCN_TRIPLE));
 
   StringRef execRef(exec->Ptr(), exec->Size());
   std::unique_ptr<MemoryBuffer> execBuffer(MemoryBuffer::getMemBuffer(execRef, "", false));

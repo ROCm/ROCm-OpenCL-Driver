@@ -41,6 +41,15 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 
+// in-process headers
+#include "clang/Frontend/CompilerInvocation.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/CodeGen/CodeGenAction.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/ToolOutputFile.h"
+#include "llvm/Bitcode/BitcodeWriter.h"
+#include "llvm/ADT/STLExtras.h"
 
 #include <sstream>
 #include <iostream>
@@ -257,6 +266,7 @@ private:
   std::string llvmLinkExe;
   File* compilerTempDir;
   bool debug;
+  bool inprocess;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
@@ -301,6 +311,8 @@ public:
   bool LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
   bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
+
+  void SetInProcess(bool binprocess = true) override { inprocess = binprocess; }
 };
 
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
@@ -317,7 +329,8 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmBin(llvmBin_),
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
-    debug(false)
+    debug(false),
+    inprocess(true)
 {
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();
@@ -522,15 +535,62 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
 
   File* bcFile = ToOutputFile(output, CompilerTempDir());
 
-  args.push_back("-o"); args.push_back(bcFile->Name().c_str());
+  args.push_back("-o");
+  args.push_back(bcFile->Name().c_str());
 
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
 
-  bool res = InvokeDriver(args);
-  if (res) { output->ReadOutputFile(bcFile); }
-  return res;
+  if (inprocess) {
+    std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", "amdgcn-amd-amdhsa-opencl", diags));
+    driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
+    driver->setTitle("AMDGPU OpenCL driver");
+    driver->setCheckInputsExist(false);
+    std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
+    const driver::JobList &Jobs = C->getJobs();
+    const driver::Command &Cmd = cast<driver::Command>(*Jobs.begin());
+    const driver::ArgStringList &CCArgs = Cmd.getArguments();
+    // Create the compiler invocation
+    std::shared_ptr<clang::CompilerInvocation> CI(new clang::CompilerInvocation);
+    // Create the compiler instance
+    clang::CompilerInstance Clang;
+    Clang.createDiagnostics();
+    if (!Clang.hasDiagnostics()) {
+      return false;
+    }
+    if (!CompilerInvocation::CreateFromArgs(*CI,
+        const_cast<const char **>(CCArgs.data()),
+        const_cast<const char **>(CCArgs.data()) +
+        CCArgs.size(),
+        Clang.getDiagnostics())) {
+      return false;
+    }
+    Clang.setInvocation(CI);
+    // Action Backend_EmitBC
+    std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitBCAction());
+    if (!Act.get()) {
+      return false;
+    }
+    if (!Clang.ExecuteAction(*Act)) {
+        return false;
+    }
+    // Grab the module built by the EmitLLVMOnlyAction
+    // ToDo: 2nd phase. In-memory.
+    //std::unique_ptr<llvm::Module> module = Act->takeModule();
+    //if (!module.get()) {
+    //    return false;
+    //}
+    //module->dump();
+  } else {
+    if (!InvokeDriver(args)) {
+      return false;
+    }
+  }
+  if (!output->ReadOutputFile(bcFile)) {
+      return false;
+  }
+  return true;
 }
 
 const std::vector<std::string> emptyOptions;

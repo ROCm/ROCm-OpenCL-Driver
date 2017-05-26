@@ -232,6 +232,11 @@ public:
    *
    */
   virtual bool DumpExecutableAsText(Buffer* exec, File* dump) = 0;
+
+  /*
+  * Change compilation mode (In-process compilation/spawn compilation processes)
+  */
+  virtual void SetInProcess(bool binprocess = true) = 0;
 };
 
 /*

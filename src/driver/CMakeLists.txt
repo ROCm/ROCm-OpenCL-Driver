@@ -79,6 +79,7 @@ target_link_libraries(opencl_driver
   clangEdit
   clangLex
   clangBasic
+  clangCodeGen
 )
 target_link_libraries(opencl_driver ${llvm_libs})
 target_include_directories(opencl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

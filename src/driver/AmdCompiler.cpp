@@ -139,6 +139,8 @@ public:
 
 TempFile::~TempFile()
 {
+  if (getenv("KEEP_TMP"))
+    return;
   std::remove(Name().c_str());
 }
 
@@ -151,6 +153,8 @@ public:
 
 TempDir::~TempDir()
 {
+  if (getenv("KEEP_TMP"))
+    return;
 #ifdef _WIN32
   RemoveDirectory(Name().c_str());
 #else // _WIN32

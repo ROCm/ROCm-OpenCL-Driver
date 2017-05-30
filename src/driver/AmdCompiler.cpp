@@ -340,7 +340,7 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
     debug(false),
-    inprocess(true)
+    inprocess(false)
 {
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();

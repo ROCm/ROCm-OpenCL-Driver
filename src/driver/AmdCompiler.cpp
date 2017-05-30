@@ -342,6 +342,7 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     debug(false),
     inprocess(false)
 {
+  LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUDisassembler();

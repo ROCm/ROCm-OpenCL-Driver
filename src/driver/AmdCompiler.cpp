@@ -337,7 +337,7 @@ bool AMDGPUCompiler::IsInProcess()
 {
   const char* in_process_env = getenv("AMD_OCL_IN_PROCESS");
   if (in_process_env) {
-    if (std::string(in_process_env) == "1")
+    if (in_process_env[0] != '0')
       return true;
     else
       return false;

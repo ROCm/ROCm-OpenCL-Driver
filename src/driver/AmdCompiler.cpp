@@ -323,12 +323,26 @@ public:
   bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
   void SetInProcess(bool binprocess = true) override { inprocess = binprocess; }
+
+  bool IsInProcess() override;
 };
 
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
 {
   args.push_back("-x cl");
 //  args.push_back("-v");
+}
+
+bool AMDGPUCompiler::IsInProcess()
+{
+  const char* in_process_env = getenv("AMD_OCL_IN_PROCESS");
+  if (in_process_env) {
+    if (std::string(in_process_env) == "1")
+      return true;
+    else
+      return false;
+  }
+  return inprocess;
 }
 
 AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
@@ -340,7 +354,7 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
     debug(false),
-    inprocess(false)
+    inprocess(true)
 {
   LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetInfo();
@@ -552,8 +566,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-
-  if (inprocess) {
+  if (IsInProcess()) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
     driver->setTitle("AMDGPU OpenCL driver");

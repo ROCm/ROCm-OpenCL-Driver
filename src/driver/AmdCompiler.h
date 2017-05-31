@@ -237,6 +237,11 @@ public:
   * Change compilation mode (In-process compilation/spawn compilation processes)
   */
   virtual void SetInProcess(bool binprocess = true) = 0;
+
+  /*
+  * Checks whether compilation is in-process or not.
+  */
+  virtual bool IsInProcess() = 0;
 };
 
 /*

@@ -47,9 +47,11 @@
 #include "clang/CodeGen/CodeGenAction.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Linker/Linker.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include <sstream>
 #include <iostream>
@@ -78,6 +80,9 @@ using namespace llvm;
 using namespace llvm::object;
 using namespace clang;
 using namespace clang::driver;
+
+static cl::opt<bool>
+Verbose("v", cl::ZeroOrMore, cl::desc("Print information about actions taken"), cl::init(false));
 
 namespace amd {
 namespace opencl_driver {
@@ -277,6 +282,7 @@ private:
   File* compilerTempDir;
   bool debug;
   bool inprocess;
+  bool linkinprocess;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
@@ -325,6 +331,8 @@ public:
   void SetInProcess(bool binprocess = true) override { inprocess = binprocess; }
 
   bool IsInProcess() override;
+
+  bool IsLinkInProcess() override;
 };
 
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
@@ -345,6 +353,18 @@ bool AMDGPUCompiler::IsInProcess()
   return inprocess;
 }
 
+bool AMDGPUCompiler::IsLinkInProcess()
+{
+  const char* in_process_env = getenv("AMD_OCL_LINK_IN_PROCESS");
+  if (in_process_env) {
+    if (in_process_env[0] != '0')
+      return true;
+    else
+      return false;
+  }
+  return linkinprocess;
+}
+
 AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
   : OS(output),
     diagOpts(new DiagnosticOptions()),
@@ -354,7 +374,8 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
     debug(false),
-    inprocess(false)
+    inprocess(false),
+    linkinprocess(true)
 {
   LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetInfo();
@@ -655,14 +676,61 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     args.push_back(inputFile->Name().c_str());
   }
   File* outputFile = ToOutputFile(output, CompilerTempDir());
-  args.push_back("-o"); args.push_back(outputFile->Name().c_str());
-  for (const std::string& s : options) {
-    args.push_back(s.c_str());
+  if (IsInProcess() || IsLinkInProcess()) {
+    if (!options.empty()) {
+      std::vector<const char*> argv;
+      for (auto option : options) {
+        argv.push_back("");
+        argv.push_back(option.c_str());
+        // parse linker options
+        if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker\n")) {
+          return false;
+        }
+        argv.clear();
+      }
+    }
+    LLVMContext context;
+    auto Composite = make_unique<llvm::Module>("composite", context);
+    Linker L(*Composite);
+    unsigned ApplicableFlags = Linker::Flags::None;
+    for (auto arg : args) {
+      SMDiagnostic error;
+      auto m = getLazyIRFileModule(arg, error, context);
+      if (!m.get()) {
+        errs() << "ERROR: the module '" << arg << "' loading failed!\n";
+        return false;
+      }
+      if (verifyModule(*m, &errs())) {
+        outs() << "ERROR: loaded module '" << arg << "' to link is broken!\n";
+        return false;
+      }
+      if (Verbose) {
+        std::cout << "Linking in '" << arg << "'\n";
+      }
+      if (L.linkInModule(std::move(m), ApplicableFlags)) {
+        errs() << "ERROR: the module '" << arg << "' is not linked!\n";
+        return false;
+      }
+    }
+    if (verifyModule(*Composite, &errs())) {
+      errs() << "ERROR: the linked module '" << outputFile->Name() << "' is broken!\n";
+      return false;
+    }
+    std::error_code ec;
+    llvm::tool_output_file out(outputFile->Name(), ec, sys::fs::F_None);
+    WriteBitcodeToFile(Composite.get(), out.os());
+    out.keep();
+  } else {
+    args.push_back("-o");
+    args.push_back(outputFile->Name().c_str());
+    for (const std::string& s : options) {
+      args.push_back(s.c_str());
+    }
+    if (!InvokeLLVMLink(args)) {
+      return false;
+    }
   }
-
-  bool res = InvokeLLVMLink(args);
-  if (res) { output->ReadOutputFile(outputFile); }
-  return res;
+  return output->ReadOutputFile(outputFile);
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options)

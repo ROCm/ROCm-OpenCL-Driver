@@ -242,6 +242,10 @@ public:
   * Checks whether compilation is in-process or not.
   */
   virtual bool IsInProcess() = 0;
+  /*
+  * Checks whether linkage is in-process or not.
+  */
+  virtual bool IsLinkInProcess() = 0;
 };
 
 /*

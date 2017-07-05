@@ -44,6 +44,8 @@
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/CodeGen/CodeGenAction.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -85,6 +87,39 @@ Verbose("v", cl::ZeroOrMore, cl::desc("Print information about actions taken"), 
 
 namespace amd {
 namespace opencl_driver {
+
+class LinkerDiagnosticInfo : public DiagnosticInfo {
+private:
+  const Twine &Message;
+
+public:
+  LinkerDiagnosticInfo(DiagnosticSeverity Severity, const Twine &Message)
+    : DiagnosticInfo(DK_Linker, Severity), Message(Message) {}
+
+  void print(DiagnosticPrinter &DP) const override { DP << Message; }
+};
+
+static void diagnosticHandler(const DiagnosticInfo &DI, void *C) {
+  if (!Verbose) { return; }
+
+  unsigned Severity = DI.getSeverity();
+  switch (Severity) {
+  case DS_Error:
+    errs() << "ERROR: ";
+    break;
+  default:
+    llvm_unreachable("Only expecting errors");
+  }
+
+  DiagnosticPrinterRawOStream DP(errs());
+  DI.print(DP);
+  errs() << '\n';
+}
+
+static bool emitLinkerError(LLVMContext &Context, const Twine &Message) {
+  Context.diagnose(LinkerDiagnosticInfo(DS_Error, Message));
+  return false;
+}
 
 static std::string joinf(const std::string& p1, const std::string& p2)
 {
@@ -625,7 +660,10 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
         argv.clear();
       }
     }
+
     LLVMContext context;
+    context.setDiagnosticHandler(diagnosticHandler, nullptr, true);
+
     auto Composite = make_unique<llvm::Module>("composite", context);
     Linker L(*Composite);
     unsigned ApplicableFlags = Linker::Flags::None;
@@ -633,24 +671,24 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
       SMDiagnostic error;
       auto m = getLazyIRFileModule(arg, error, context);
       if (!m.get()) {
-        errs() << "ERROR: the module '" << arg << "' loading failed!\n";
-        return false;
+        return emitLinkerError(
+            context, "the module '" + Twine(arg) + "' loading failed!");
       }
       if (verifyModule(*m, &errs())) {
-        errs() << "ERROR: loaded module '" << arg << "' to link is broken!\n";
-        return false;
+        return emitLinkerError(
+            context, "loaded module '" + Twine(arg) + "' to link is broken!");
       }
       if (Verbose) {
         std::cout << "Linking in '" << arg << "'\n";
       }
       if (L.linkInModule(std::move(m), ApplicableFlags)) {
-        errs() << "ERROR: the module '" << arg << "' is not linked!\n";
-        return false;
+        return emitLinkerError(
+            context, "the module '" + Twine(arg) + "' is not linked!");
       }
     }
     if (verifyModule(*Composite, &errs())) {
-      errs() << "ERROR: the linked module '" << outputFile->Name() << "' is broken!\n";
-      return false;
+      return emitLinkerError(
+          context, "the linked module '" + outputFile->Name() + "' is broken!");
     }
     std::error_code ec;
     llvm::tool_output_file out(outputFile->Name(), ec, sys::fs::F_None);

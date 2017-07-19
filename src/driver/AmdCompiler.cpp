@@ -317,6 +317,7 @@ private:
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void AddCommonArgs(std::vector<const char*>& args);
+  void FilterArgs(ArgStringList& args);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeLLVMLink(ArrayRef<const char*> args);
   File* CompilerTempDir() {
@@ -369,6 +370,14 @@ public:
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
 {
   args.push_back("-x cl");
+}
+
+void AMDGPUCompiler::FilterArgs(ArgStringList& args)
+{
+  ArgStringList::iterator it = std::find(args.begin(), args.end(), "-disable-free");
+  if (it != args.end()) {
+    args.erase(it);
+  }
 }
 
 bool AMDGPUCompiler::IsInProcess()
@@ -584,7 +593,9 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
     const driver::JobList &Jobs = C->getJobs();
     const driver::Command &Cmd = cast<driver::Command>(*Jobs.begin());
-    const driver::ArgStringList &CCArgs = Cmd.getArguments();
+    // Filter out option(s) contradictory to in-process compilation
+    driver::ArgStringList CCArgs(Cmd.getArguments());
+    FilterArgs(CCArgs);
     // Create the compiler invocation
     std::shared_ptr<clang::CompilerInvocation> CI(new clang::CompilerInvocation);
     // Create the compiler instance

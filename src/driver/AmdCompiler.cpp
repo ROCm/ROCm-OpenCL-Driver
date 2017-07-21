@@ -409,7 +409,7 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
     debug(false),
-    inprocess(false),
+    inprocess(true),
     linkinprocess(true)
 {
   LLVMInitializeAMDGPUTarget();

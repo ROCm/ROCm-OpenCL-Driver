@@ -41,6 +41,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 // in-process headers
+#include "clang/Driver/Tool.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/CodeGen/CodeGenAction.h"
@@ -319,7 +320,7 @@ private:
   void AddCommonArgs(std::vector<const char*>& args);
   void FilterArgs(ArgStringList& args);
   bool InvokeDriver(ArrayRef<const char*> args);
-  bool InvokeLLVMLink(ArrayRef<const char*> args);
+  bool InvokeLinker(ArrayRef<const char*> args, const std::string& sLinker);
   File* CompilerTempDir() {
     if (!compilerTempDir) { compilerTempDir = NewTempDir(); }
     return compilerTempDir;
@@ -360,7 +361,12 @@ public:
 
   bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
-  void SetInProcess(bool binprocess = true) override { inprocess = binprocess; }
+  void SetInProcess(bool binprocess = true) override {
+    inprocess = binprocess;
+    if (IsInProcess()) {
+      LLVMInitializeAMDGPUAsmPrinter();
+    }
+  }
 
   bool IsInProcess() override;
 
@@ -416,6 +422,9 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
   LLVMInitializeAMDGPUTargetInfo();
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUDisassembler();
+  if (IsInProcess()) {
+    LLVMInitializeAMDGPUAsmPrinter();
+  }
 }
 
 AMDGPUCompiler::~AMDGPUCompiler()
@@ -484,14 +493,14 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
   return Res == 0;
 }
 
-bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
+bool AMDGPUCompiler::InvokeLinker(ArrayRef<const char*> args, const std::string& sLinker)
 {
   SmallVector<const char*, 128> args1;
-  args1.push_back(llvmLinkExe.c_str());
+  args1.push_back(sLinker.c_str());
   for (const char *arg : args) { args1.push_back(arg); }
   args1.push_back(nullptr);
   if (debug) {
-    OS << "InvokeLLVMLink: " << llvmLinkExe << "\n";
+    OS << "InvokeLinker: " << sLinker << "\n";
     for (const char* arg : args1) {
       if (arg) { OS << "\"" << arg << "\" "; }
     }
@@ -503,7 +512,7 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
   Redirects[0] = nullptr;
   Redirects[1] = new StringRef(out->Name());
   Redirects[2] = new StringRef(err->Name());
-  int res = llvm::sys::ExecuteAndWait(llvmLinkExe, args1.data(), nullptr, Redirects);
+  int res = llvm::sys::ExecuteAndWait(sLinker, args1.data(), nullptr, Redirects);
   std::string outStr, errStr;
   out->ReadToString(outStr);
   err->ReadToString(errStr);
@@ -603,10 +612,10 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     Clang.createDiagnostics();
     if (!Clang.hasDiagnostics()) { return false; }
     if (!CompilerInvocation::CreateFromArgs(*CI,
-        const_cast<const char **>(CCArgs.data()),
-        const_cast<const char **>(CCArgs.data()) +
-        CCArgs.size(),
-        Clang.getDiagnostics())) {
+      const_cast<const char **>(CCArgs.data()),
+      const_cast<const char **>(CCArgs.data()) +
+      CCArgs.size(),
+      Clang.getDiagnostics())) {
       return false;
     }
     Clang.setInvocation(CI);
@@ -711,7 +720,7 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     for (const std::string& s : options) {
       args.push_back(s.c_str());
     }
-    if (!InvokeLLVMLink(args)) { return false; }
+    if (!InvokeLinker(args, llvmLinkExe)) { return false; }
   }
   return output->ReadOutputFile(outputFile);
 }
@@ -731,9 +740,54 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-  bool res = InvokeDriver(args);
-  if (res) { output->ReadOutputFile(outputFile); }
-  return res;
+  if (IsInProcess()) {
+    std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
+    driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
+    driver->setTitle("AMDGPU OpenCL driver");
+    driver->setCheckInputsExist(false);
+    std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
+    const driver::JobList &Jobs = C->getJobs();
+    int i = 1;
+    for (auto const & J : Jobs) {
+      // Filter out option(s) contradictory to in-process compilation
+      driver::ArgStringList Args(J.getArguments());
+      FilterArgs(Args);
+      if (Jobs.size() > 1) {
+        if (i == 1) {
+          // Create the compiler invocation
+          std::shared_ptr<clang::CompilerInvocation> CI(new clang::CompilerInvocation);
+          // Create the compiler instance
+          clang::CompilerInstance Clang;
+          Clang.createDiagnostics();
+          if (!Clang.hasDiagnostics()) { return false; }
+          if (!CompilerInvocation::CreateFromArgs(*CI,
+            const_cast<const char **>(Args.data()),
+            const_cast<const char **>(Args.data()) +
+            Args.size(),
+            Clang.getDiagnostics())) {
+            return false;
+          }
+          Clang.setInvocation(CI);
+          // Action Backend_EmitObj
+          std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitObjAction());
+          if (!Act.get()) { return false; }
+          if (!Clang.ExecuteAction(*Act)) { return false; }
+        }
+        if (i == 2) {
+          // lld fork
+          if (!InvokeLinker(Args, llvmBin + +"/ld.lld")) { return false; }
+          /* lld statically linker */
+          //ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(Args);
+          //if (!lld::elf::link(ArgRefs, false)) { return false; }
+        }
+        i++;
+      }
+    }
+  } else {
+    if (!InvokeDriver(args)) { return false; }
+  }
+  if (!output->ReadOutputFile(outputFile)) { return false; }
+  return true;
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options)

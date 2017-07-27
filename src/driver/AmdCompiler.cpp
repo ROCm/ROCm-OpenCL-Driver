@@ -17,7 +17,6 @@
 
 // implicitly needed
 #include "clang/Basic/VirtualFileSystem.h"
-// #include "clang/Tooling/Tooling.h"
 
 #include "AMDGPU.h"
 #include "Disassembler/CodeObjectDisassembler.h"
@@ -47,9 +46,11 @@
 #include "clang/CodeGen/CodeGenAction.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/IRReader/IRReader.h"
+#include "llvm/Linker/Linker.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "llvm/ADT/STLExtras.h"
 
 #include <sstream>
 #include <iostream>
@@ -79,6 +80,9 @@ using namespace llvm::object;
 using namespace clang;
 using namespace clang::driver;
 
+static cl::opt<bool>
+Verbose("v", cl::ZeroOrMore, cl::desc("Print information about actions taken"), cl::init(false));
+
 namespace amd {
 namespace opencl_driver {
 
@@ -100,8 +104,7 @@ const char* DataTypeExt(DataType type)
   case DT_EXECUTABLE: return "bc";
   case DT_MAP: return "map";
   case DT_INTERNAL: return 0;
-  default:
-    assert(false); return 0;
+  default: assert(false); return 0;
   }
 }
 
@@ -139,8 +142,7 @@ public:
 
 TempFile::~TempFile()
 {
-  if (getenv("KEEP_TMP"))
-    return;
+  if (getenv("KEEP_TMP")) { return; }
   std::remove(Name().c_str());
 }
 
@@ -153,8 +155,7 @@ public:
 
 TempDir::~TempDir()
 {
-  if (getenv("KEEP_TMP"))
-    return;
+  if (getenv("KEEP_TMP")) { return; }
 #ifdef _WIN32
   RemoveDirectory(Name().c_str());
 #else // _WIN32
@@ -254,7 +255,6 @@ public:
 
   std::string NewTempName(const char* dir, const char* prefix, const char* ext, bool pid = true) const {
     static std::atomic_size_t counter(1);
-
     if (!dir) { dir = tempDir; }
     std::ostringstream name;
     name << dir << "/" << prefix << getpid() << "_" << counter++;
@@ -277,29 +277,31 @@ private:
   File* compilerTempDir;
   bool debug;
   bool inprocess;
+  bool linkinprocess;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void AddCommonArgs(std::vector<const char*>& args);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeLLVMLink(ArrayRef<const char*> args);
-
   File* CompilerTempDir() {
-    if (!compilerTempDir) {
-      compilerTempDir = NewTempDir();
-    }
+    if (!compilerTempDir) { compilerTempDir = NewTempDir(); }
     return compilerTempDir;
   }
 
   FileReference* ToInputFile(Data* input, File *parent);
+
   File* ToOutputFile(Data* output, File *parent);
 
   bool CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options);
+
   bool CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options);
+
   bool DumpExecutableAsText(Buffer* exec, File* dump) override;
 
 public:
   AMDGPUCompiler(const std::string& llvmBin);
+
   ~AMDGPUCompiler();
 
   std::string Output() override { OS.flush(); return output; }
@@ -325,24 +327,33 @@ public:
   void SetInProcess(bool binprocess = true) override { inprocess = binprocess; }
 
   bool IsInProcess() override;
+
+  bool IsLinkInProcess() override;
 };
 
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
 {
   args.push_back("-x cl");
-//  args.push_back("-v");
 }
 
 bool AMDGPUCompiler::IsInProcess()
 {
   const char* in_process_env = getenv("AMD_OCL_IN_PROCESS");
   if (in_process_env) {
-    if (in_process_env[0] != '0')
-      return true;
-    else
-      return false;
+    if (in_process_env[0] != '0') { return true; }
+    else { return false; }
   }
   return inprocess;
+}
+
+bool AMDGPUCompiler::IsLinkInProcess()
+{
+  const char* in_process_env = getenv("AMD_OCL_LINK_IN_PROCESS");
+  if (in_process_env) {
+    if (in_process_env[0] != '0') { return true; }
+    else { return false; }
+  }
+  return linkinprocess;
 }
 
 AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
@@ -354,7 +365,8 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
     debug(false),
-    inprocess(true)
+    inprocess(false),
+    linkinprocess(true)
 {
   LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetInfo();
@@ -383,28 +395,22 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
     OS << "\n";
   }
   std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
-
   File* out = NewTempFile(DT_INTERNAL);
   File* err = NewTempFile(DT_INTERNAL);
-
   const StringRef** Redirects = new const StringRef*[3];
   Redirects[0] = nullptr;
   Redirects[1] = new StringRef(out->Name());
   Redirects[2] = new StringRef(err->Name());
-
   C->Redirect(Redirects);
-
   int Res = 0;
   SmallVector<std::pair<int, const Command *>, 4> failingCommands;
   if (C.get()) {
     Res = driver->ExecuteCompilation(*C, failingCommands);
   }
-
   for (const auto &P : failingCommands) {
     int CommandRes = P.first;
     const Command *failingCommand = P.second;
-    if (!Res)
-      Res = CommandRes;
+    if (!Res) { Res = CommandRes; }
     // If result status is < 0, then the driver command signalled an error.
     // If result status is 70, then the driver command reported a fatal error.
     // On Windows, abort will return an exit code of 3.  In these cases,
@@ -418,23 +424,12 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
       break;
     }
   }
-
-  if (debug) {
-    driver->PrintActions(*C);
-  }
-
+  if (debug) { driver->PrintActions(*C); }
   std::string outStr, errStr;
   out->ReadToString(outStr);
   err->ReadToString(errStr);
-
   if (!outStr.empty()) { OS << outStr; }
   if (!errStr.empty()) { OS << errStr; }
-
-//  const DiagnosticsEngine &diags = driver->getDiags();
-//  DiagnosticConsumer *diagCons = const_cast<DiagnosticConsumer*>(diags.getClient());
-// failing here:
-//  diagCons->finish();
-
 #ifdef LLVM_ON_WIN32
   // Exit status should not be negative on Win32, unless abnormal termination.
   // Once abnormal termiation was caught, negative status should not be
@@ -442,7 +437,6 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
   if (Res < 0)
     Res = 1;
 #endif
-
   return Res == 0;
 }
 
@@ -450,42 +444,28 @@ bool AMDGPUCompiler::InvokeLLVMLink(ArrayRef<const char*> args)
 {
   SmallVector<const char*, 128> args1;
   args1.push_back(llvmLinkExe.c_str());
-//  args1.push_back("-v");
   for (const char *arg : args) { args1.push_back(arg); }
   args1.push_back(nullptr);
   if (debug) {
-    OS << "InvokeLLVMLink: ";
-    OS << llvmLinkExe << "\n";
+    OS << "InvokeLLVMLink: " << llvmLinkExe << "\n";
     for (const char* arg : args1) {
-      if (arg) {
-        OS << "\"" << arg << "\" ";
-      }
+      if (arg) { OS << "\"" << arg << "\" "; }
     }
     OS << "\n\n";
   }
-
   File* out = NewTempFile(DT_INTERNAL);
   File* err = NewTempFile(DT_INTERNAL);
-
   const StringRef** Redirects = new const StringRef*[3];
   Redirects[0] = nullptr;
   Redirects[1] = new StringRef(out->Name());
   Redirects[2] = new StringRef(err->Name());
-
-
   int res = llvm::sys::ExecuteAndWait(llvmLinkExe, args1.data(), nullptr, Redirects);
-
   std::string outStr, errStr;
   out->ReadToString(outStr);
   err->ReadToString(errStr);
-
   if (!outStr.empty()) { OS << outStr; }
   if (!errStr.empty()) { OS << errStr; }
-
-
-  if (res != 0) {
-    return false;
-  }
+  if (res != 0) { return false; }
   return true;
 }
 
@@ -550,19 +530,14 @@ Buffer* AMDGPUCompiler::NewBuffer(DataType type)
 bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options)
 {
   std::vector<const char*> args;
-
   AddCommonArgs(args);
   args.push_back("-c");
   args.push_back("-emit-llvm");
-
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());
-
   File* bcFile = ToOutputFile(output, CompilerTempDir());
-
   args.push_back("-o");
   args.push_back(bcFile->Name().c_str());
-
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
@@ -580,9 +555,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     // Create the compiler instance
     clang::CompilerInstance Clang;
     Clang.createDiagnostics();
-    if (!Clang.hasDiagnostics()) {
-      return false;
-    }
+    if (!Clang.hasDiagnostics()) { return false; }
     if (!CompilerInvocation::CreateFromArgs(*CI,
         const_cast<const char **>(CCArgs.data()),
         const_cast<const char **>(CCArgs.data()) +
@@ -593,27 +566,12 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     Clang.setInvocation(CI);
     // Action Backend_EmitBC
     std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitBCAction());
-    if (!Act.get()) {
-      return false;
-    }
-    if (!Clang.ExecuteAction(*Act)) {
-        return false;
-    }
-    // Grab the module built by the EmitLLVMOnlyAction
-    // ToDo: 2nd phase. In-memory.
-    //std::unique_ptr<llvm::Module> module = Act->takeModule();
-    //if (!module.get()) {
-    //    return false;
-    //}
-    //module->dump();
+    if (!Act.get()) { return false; }
+    if (!Clang.ExecuteAction(*Act)) { return false; }
   } else {
-    if (!InvokeDriver(args)) {
-      return false;
-    }
+    if (!InvokeDriver(args)) { return false; }
   }
-  if (!output->ReadOutputFile(bcFile)) {
-      return false;
-  }
+  if (!output->ReadOutputFile(bcFile)) { return false; }
   return true;
 }
 
@@ -655,38 +613,75 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     args.push_back(inputFile->Name().c_str());
   }
   File* outputFile = ToOutputFile(output, CompilerTempDir());
-  args.push_back("-o"); args.push_back(outputFile->Name().c_str());
-  for (const std::string& s : options) {
-    args.push_back(s.c_str());
+  if (IsInProcess() || IsLinkInProcess()) {
+    if (!options.empty()) {
+      std::vector<const char*> argv;
+      for (auto option : options) {
+        argv.push_back("");
+        argv.push_back(option.c_str());
+        if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
+          return false;
+        }
+        argv.clear();
+      }
+    }
+    LLVMContext context;
+    auto Composite = make_unique<llvm::Module>("composite", context);
+    Linker L(*Composite);
+    unsigned ApplicableFlags = Linker::Flags::None;
+    for (auto arg : args) {
+      SMDiagnostic error;
+      auto m = getLazyIRFileModule(arg, error, context);
+      if (!m.get()) {
+        errs() << "ERROR: the module '" << arg << "' loading failed!\n";
+        return false;
+      }
+      if (verifyModule(*m, &errs())) {
+        errs() << "ERROR: loaded module '" << arg << "' to link is broken!\n";
+        return false;
+      }
+      if (Verbose) {
+        std::cout << "Linking in '" << arg << "'\n";
+      }
+      if (L.linkInModule(std::move(m), ApplicableFlags)) {
+        errs() << "ERROR: the module '" << arg << "' is not linked!\n";
+        return false;
+      }
+    }
+    if (verifyModule(*Composite, &errs())) {
+      errs() << "ERROR: the linked module '" << outputFile->Name() << "' is broken!\n";
+      return false;
+    }
+    std::error_code ec;
+    llvm::tool_output_file out(outputFile->Name(), ec, sys::fs::F_None);
+    WriteBitcodeToFile(Composite.get(), out.os());
+    out.keep();
+  } else {
+    args.push_back("-o");
+    args.push_back(outputFile->Name().c_str());
+    for (const std::string& s : options) {
+      args.push_back(s.c_str());
+    }
+    if (!InvokeLLVMLink(args)) { return false; }
   }
-
-  bool res = InvokeLLVMLink(args);
-  if (res) { output->ReadOutputFile(outputFile); }
-  return res;
+  return output->ReadOutputFile(outputFile);
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options)
 {
   std::vector<const char*> args;
-
   AddCommonArgs(args);
-
   File* mapFile = NewTempFile(DT_MAP, "", CompilerTempDir());
   std::string smap = "-Wl,-Map=";
   smap.append(mapFile->Name().c_str());
   args.push_back(smap.c_str());
-
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());
-
   File* outputFile = ToOutputFile(output, CompilerTempDir());
-
   args.push_back("-o"); args.push_back(outputFile->Name().c_str());
-
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-
   bool res = InvokeDriver(args);
   if (res) { output->ReadOutputFile(outputFile); }
   return res;
@@ -706,53 +701,37 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
 bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump)
 {
   StringRef TripleName = Triple::normalize(STRING(AMDGCN_TRIPLE));
-
   StringRef execRef(exec->Ptr(), exec->Size());
   std::unique_ptr<MemoryBuffer> execBuffer(MemoryBuffer::getMemBuffer(execRef, "", false));
   Expected<std::unique_ptr<Binary>> execBinary = createBinary(*execBuffer);
   if (!execBinary) { return false; }
   std::unique_ptr<Binary> Binary(execBinary.get().release());
-  if (!Binary)
-    return false;
-
+  if (!Binary) { return false; }
   // setup context
   const auto &TheTarget = getTheGCNTarget();
-
   std::unique_ptr<MCRegisterInfo> MRI(TheTarget.createMCRegInfo(TripleName));
   if (!MRI) { return false; }
-
   std::unique_ptr<MCAsmInfo> AsmInfo(TheTarget.createMCAsmInfo(*MRI, TripleName));
   if (!AsmInfo) { return false; }
-
   std::unique_ptr<MCInstrInfo> MII(TheTarget.createMCInstrInfo());
   if (!MII) { return false; }
-
   MCObjectFileInfo MOFI;
   MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
   MOFI.InitMCObjectFileInfo(Triple(TripleName), false, CodeModel::Default, Ctx);
-
   int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
   MCInstPrinter *IP(TheTarget.createMCInstPrinter(Triple(TripleName),
                                                   AsmPrinterVariant,
                                                   *AsmInfo, *MII, *MRI));
-  if (!IP)
-    report_fatal_error("error: no instruction printer");
-
+  if (!IP) { report_fatal_error("error: no instruction printer"); }
   std::error_code EC;
-
   raw_fd_ostream FO(dump->Name(), EC, sys::fs::F_None);
-
   auto FOut = make_unique<formatted_raw_ostream>(FO);
-
   std::unique_ptr<MCStreamer> MCS(
     TheTarget.createAsmStreamer(Ctx, std::move(FOut), true, false, IP,
                                 nullptr, nullptr, false));
-
   CodeObjectDisassembler CODisasm(&Ctx, TripleName, IP, MCS->getTargetStreamer());
-
   EC = CODisasm.Disassemble(Binary->getMemoryBufferRef(), errs());
   if (EC) { return false; }
-
   return true;
 }
 

@@ -740,7 +740,8 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-  if (IsInProcess()) {
+  // switch off in-process compilation till finding out differences in compilation flows
+  if (false /*IsInProcess()*/) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
     driver->setTitle("AMDGPU OpenCL driver");

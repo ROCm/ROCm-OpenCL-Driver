@@ -319,6 +319,8 @@ private:
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void AddCommonArgs(std::vector<const char*>& args);
   void FilterArgs(ArgStringList& args);
+  void ParseLLVMOptions(const CompilerInstance& clang);
+  void ResetOptionsToDefault();
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeTool(ArrayRef<const char*> args, const std::string& sLinker);
   File* CompilerTempDir() {
@@ -384,6 +386,33 @@ void AMDGPUCompiler::FilterArgs(ArgStringList& args)
   if (it != args.end()) {
     args.erase(it);
   }
+}
+
+void AMDGPUCompiler::ParseLLVMOptions(const CompilerInstance& clang)
+{
+  if (clang.getFrontendOpts().LLVMArgs.empty()) { return; }
+  std::vector<const char*> args;
+  for (auto A : clang.getFrontendOpts().LLVMArgs) {
+    args.push_back("");
+    args.push_back(A.c_str());
+    cl::ParseCommandLineOptions(args.size(), &args[0], "-mllvm options parsing");
+    args.clear();
+  }
+}
+
+void AMDGPUCompiler::ResetOptionsToDefault()
+{
+  llvm::cl::ResetAllOptionOccurrences();
+  // ToDo: uncomment after implementing llvm::cl::Option::setDefault()
+  /* 
+  for (auto SC : cl::getRegisteredSubcommands()) {
+    for (auto &OM : SC->OptionsMap) {
+      llvm::cl::Option *O = OM.second;
+      // missing functionality in Clang's CommandLine.h
+      O->setDefault();
+    }
+  }
+  */
 }
 
 bool AMDGPUCompiler::IsInProcess()
@@ -595,6 +624,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     args.push_back(s.c_str());
   }
   if (IsInProcess()) {
+    ResetOptionsToDefault();
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
     driver->setTitle("AMDGPU OpenCL driver");
@@ -619,6 +649,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
       return false;
     }
     Clang.setInvocation(CI);
+    ParseLLVMOptions(Clang);
     // Action Backend_EmitBC
     std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitBCAction());
     if (!Act.get()) { return false; }
@@ -740,8 +771,8 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-  // switch off in-process compilation till finding out differences in compilation flows
-  if (false /*IsInProcess()*/) {
+  if (IsInProcess()) {
+    ResetOptionsToDefault();
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
     driver->setTitle("AMDGPU OpenCL driver");
@@ -770,6 +801,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
             return false;
           }
           Clang.setInvocation(CI);
+          ParseLLVMOptions(Clang);
           // Action Backend_EmitObj
           std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitObjAction());
           if (!Act.get()) { return false; }

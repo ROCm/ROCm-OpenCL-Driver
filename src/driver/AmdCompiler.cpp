@@ -824,7 +824,7 @@ bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump)
   if (!MII) { return false; }
   MCObjectFileInfo MOFI;
   MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  MOFI.InitMCObjectFileInfo(Triple(TripleName), false, CodeModel::Default, Ctx);
+  MOFI.InitMCObjectFileInfo(Triple(TripleName), false, Ctx);
   int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
   MCInstPrinter *IP(TheTarget.createMCInstPrinter(Triple(TripleName),
                                                   AsmPrinterVariant,

@@ -635,20 +635,17 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     // Filter out option(s) contradictory to in-process compilation
     driver::ArgStringList CCArgs(Cmd.getArguments());
     FilterArgs(CCArgs);
-    // Create the compiler invocation
-    std::shared_ptr<clang::CompilerInvocation> CI(new clang::CompilerInvocation);
     // Create the compiler instance
     clang::CompilerInstance Clang;
     Clang.createDiagnostics();
     if (!Clang.hasDiagnostics()) { return false; }
-    if (!CompilerInvocation::CreateFromArgs(*CI,
+    if (!CompilerInvocation::CreateFromArgs(Clang.getInvocation(),
       const_cast<const char **>(CCArgs.data()),
       const_cast<const char **>(CCArgs.data()) +
       CCArgs.size(),
       Clang.getDiagnostics())) {
       return false;
     }
-    Clang.setInvocation(CI);
     ParseLLVMOptions(Clang);
     // Action Backend_EmitBC
     std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitBCAction());
@@ -787,20 +784,17 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
       if (Jobs.size() == 2) {
         std::string sJobName = std::string(J.getCreator().getName());
         if (i == 1 && sJobName == "clang") {
-          // Create the compiler invocation
-          std::shared_ptr<clang::CompilerInvocation> CI(new clang::CompilerInvocation);
           // Create the compiler instance
           clang::CompilerInstance Clang;
           Clang.createDiagnostics();
           if (!Clang.hasDiagnostics()) { return false; }
-          if (!CompilerInvocation::CreateFromArgs(*CI,
+          if (!CompilerInvocation::CreateFromArgs(Clang.getInvocation(),
             const_cast<const char **>(Args.data()),
             const_cast<const char **>(Args.data()) +
             Args.size(),
             Clang.getDiagnostics())) {
             return false;
           }
-          Clang.setInvocation(CI);
           ParseLLVMOptions(Clang);
           // Action Backend_EmitObj
           std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitObjAction());

@@ -318,9 +318,13 @@ private:
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void AddCommonArgs(std::vector<const char*>& args);
-  void FilterArgs(ArgStringList& args);
-  void ParseLLVMOptions(const CompilerInstance& clang);
   void ResetOptionsToDefault();
+  // Filter out option(s) contradictory to in-process compilation
+  void FilterArgs(ArgStringList& args);
+  // Parse -mllvm options
+  bool ParseLLVMOptions(const CompilerInstance& clang);
+  bool PrepareCompiler(CompilerInstance& clang, const Command& job);
+  void InitDriver(std::unique_ptr<Driver>& driver);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeTool(ArrayRef<const char*> args, const std::string& sLinker);
   File* CompilerTempDir() {
@@ -375,6 +379,13 @@ public:
   bool IsLinkInProcess() override;
 };
 
+void AMDGPUCompiler::InitDriver(std::unique_ptr<Driver>& driver)
+{
+  driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
+  driver->setTitle("AMDGPU OpenCL driver");
+  driver->setCheckInputsExist(false);
+}
+
 void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args)
 {
   args.push_back("-x cl");
@@ -388,31 +399,48 @@ void AMDGPUCompiler::FilterArgs(ArgStringList& args)
   }
 }
 
-void AMDGPUCompiler::ParseLLVMOptions(const CompilerInstance& clang)
+bool AMDGPUCompiler::ParseLLVMOptions(const CompilerInstance& clang)
 {
-  if (clang.getFrontendOpts().LLVMArgs.empty()) { return; }
+  if (clang.getFrontendOpts().LLVMArgs.empty()) { return true; }
   std::vector<const char*> args;
   for (auto A : clang.getFrontendOpts().LLVMArgs) {
     args.push_back("");
     args.push_back(A.c_str());
-    cl::ParseCommandLineOptions(args.size(), &args[0], "-mllvm options parsing");
+    if (!cl::ParseCommandLineOptions(args.size(), &args[0], "-mllvm options parsing")) { return false; }
     args.clear();
   }
+  return true;
 }
 
 void AMDGPUCompiler::ResetOptionsToDefault()
 {
-  llvm::cl::ResetAllOptionOccurrences();
+  cl::ResetAllOptionOccurrences();
   // ToDo: uncomment after implementing llvm::cl::Option::setDefault()
-  /* 
+  /*
   for (auto SC : cl::getRegisteredSubcommands()) {
     for (auto &OM : SC->OptionsMap) {
-      llvm::cl::Option *O = OM.second;
+      cl::Option *O = OM.second;
       // missing functionality in Clang's CommandLine.h
       O->setDefault();
     }
   }
   */
+}
+
+bool AMDGPUCompiler::PrepareCompiler(CompilerInstance& clang, const Command& job)
+{
+  ResetOptionsToDefault();
+  ArgStringList CCArgs(job.getArguments());
+  FilterArgs(CCArgs);
+  clang.createDiagnostics();
+  if (!clang.hasDiagnostics()) { return false; }
+  if (!CompilerInvocation::CreateFromArgs(clang.getInvocation(),
+    const_cast<const char**>(CCArgs.data()),
+    const_cast<const char**>(CCArgs.data()) +
+    CCArgs.size(),
+    clang.getDiagnostics())) { return false; }
+  if (!ParseLLVMOptions(clang)) { return false; }
+  return true;
 }
 
 bool AMDGPUCompiler::IsInProcess()
@@ -466,9 +494,7 @@ AMDGPUCompiler::~AMDGPUCompiler()
 bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
 {
   std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", STRING(AMDGCN_TRIPLE), diags));
-  driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
-  driver->setTitle("AMDGPU OpenCL driver");
-  driver->setCheckInputsExist(false);
+  InitDriver(driver);
   if (debug) {
     OS << "InvokeDriver: ";
     for (const char* arg : args) {
@@ -624,31 +650,14 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     args.push_back(s.c_str());
   }
   if (IsInProcess()) {
-    ResetOptionsToDefault();
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
-    driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
-    driver->setTitle("AMDGPU OpenCL driver");
-    driver->setCheckInputsExist(false);
+    InitDriver(driver);
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
-    const driver::JobList &Jobs = C->getJobs();
-    const driver::Command &Cmd = cast<driver::Command>(*Jobs.begin());
-    // Filter out option(s) contradictory to in-process compilation
-    driver::ArgStringList CCArgs(Cmd.getArguments());
-    FilterArgs(CCArgs);
-    // Create the compiler instance
-    clang::CompilerInstance Clang;
-    Clang.createDiagnostics();
-    if (!Clang.hasDiagnostics()) { return false; }
-    if (!CompilerInvocation::CreateFromArgs(Clang.getInvocation(),
-      const_cast<const char **>(CCArgs.data()),
-      const_cast<const char **>(CCArgs.data()) +
-      CCArgs.size(),
-      Clang.getDiagnostics())) {
-      return false;
-    }
-    ParseLLVMOptions(Clang);
+    const JobList &Jobs = C->getJobs();
+    CompilerInstance Clang;
+    if (!PrepareCompiler(Clang, *Jobs.begin())) { return false; }
     // Action Backend_EmitBC
-    std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitBCAction());
+    std::unique_ptr<CodeGenAction> Act(new EmitBCAction());
     if (!Act.get()) { return false; }
     if (!Clang.ExecuteAction(*Act)) { return false; }
   } else {
@@ -708,10 +717,8 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
         argv.clear();
       }
     }
-
     LLVMContext context;
     context.setDiagnosticHandler(diagnosticHandler, nullptr, true);
-
     auto Composite = make_unique<llvm::Module>("composite", context);
     Linker L(*Composite);
     unsigned ApplicableFlags = Linker::Flags::None;
@@ -719,24 +726,20 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
       SMDiagnostic error;
       auto m = getLazyIRFileModule(arg, error, context);
       if (!m.get()) {
-        return emitLinkerError(
-            context, "the module '" + Twine(arg) + "' loading failed!");
+        return emitLinkerError(context, "the module '" + Twine(arg) + "' loading failed.");
       }
       if (verifyModule(*m, &errs())) {
-        return emitLinkerError(
-            context, "loaded module '" + Twine(arg) + "' to link is broken!");
+        return emitLinkerError(context, "loaded module '" + Twine(arg) + "' to link is broken.");
       }
       if (Verbose) {
-        std::cout << "Linking in '" << arg << "'\n";
+        std::cout << "Linking in '" << arg << "'" << std::endl;
       }
       if (L.linkInModule(std::move(m), ApplicableFlags)) {
-        return emitLinkerError(
-            context, "the module '" + Twine(arg) + "' is not linked!");
+        return emitLinkerError(context, "the module '" + Twine(arg) + "' is not linked.");
       }
     }
     if (verifyModule(*Composite, &errs())) {
-      return emitLinkerError(
-          context, "the linked module '" + outputFile->Name() + "' is broken!");
+      return emitLinkerError(context, "the linked module '" + outputFile->Name() + "' is broken.");
     }
     std::error_code ec;
     llvm::tool_output_file out(outputFile->Name(), ec, sys::fs::F_None);
@@ -769,43 +772,27 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
     args.push_back(s.c_str());
   }
   if (IsInProcess()) {
-    ResetOptionsToDefault();
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
-    driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
-    driver->setTitle("AMDGPU OpenCL driver");
-    driver->setCheckInputsExist(false);
+    InitDriver(driver);
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
-    const driver::JobList &Jobs = C->getJobs();
+    const JobList &Jobs = C->getJobs();
     int i = 1;
     for (auto const & J : Jobs) {
-      // Filter out option(s) contradictory to in-process compilation
-      driver::ArgStringList Args(J.getArguments());
-      FilterArgs(Args);
       if (Jobs.size() == 2) {
         std::string sJobName = std::string(J.getCreator().getName());
         if (i == 1 && sJobName == "clang") {
-          // Create the compiler instance
-          clang::CompilerInstance Clang;
-          Clang.createDiagnostics();
-          if (!Clang.hasDiagnostics()) { return false; }
-          if (!CompilerInvocation::CreateFromArgs(Clang.getInvocation(),
-            const_cast<const char **>(Args.data()),
-            const_cast<const char **>(Args.data()) +
-            Args.size(),
-            Clang.getDiagnostics())) {
-            return false;
-          }
-          ParseLLVMOptions(Clang);
+          CompilerInstance Clang;
+          if (!PrepareCompiler(Clang, J)) { return false; }
           // Action Backend_EmitObj
-          std::unique_ptr<clang::CodeGenAction> Act(new clang::EmitObjAction());
+          std::unique_ptr<CodeGenAction> Act(new EmitObjAction());
           if (!Act.get()) { return false; }
           if (!Clang.ExecuteAction(*Act)) { return false; }
         }
         else if (i == 2 && sJobName == "amdgpu::Linker") {
           // lld fork
-          if (!InvokeTool(Args, llvmBin + +"/ld.lld")) { return false; }
+          if (!InvokeTool(J.getArguments(), llvmBin + +"/ld.lld")) { return false; }
           /* lld statically linked */
-          //ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(Args);
+          //ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(J.getArguments());
           //if (!lld::elf::link(ArgRefs, false)) { return false; }
         }
         else { return false; }

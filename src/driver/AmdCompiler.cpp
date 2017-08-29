@@ -415,16 +415,12 @@ bool AMDGPUCompiler::ParseLLVMOptions(const CompilerInstance& clang)
 void AMDGPUCompiler::ResetOptionsToDefault()
 {
   cl::ResetAllOptionOccurrences();
-  // ToDo: uncomment after implementing llvm::cl::Option::setDefault()
-  /*
   for (auto SC : cl::getRegisteredSubcommands()) {
     for (auto &OM : SC->OptionsMap) {
       cl::Option *O = OM.second;
-      // missing functionality in Clang's CommandLine.h
       O->setDefault();
     }
   }
-  */
 }
 
 bool AMDGPUCompiler::PrepareCompiler(CompilerInstance& clang, const Command& job)

@@ -22,6 +22,13 @@ enum DataType {
   DT_INTERNAL,
 };
 
+enum LogLevel {
+  LL_DUMB = 0,
+  LL_ERRORS,
+  LL_LLVM_ONLY,
+  LL_VERBOSE,
+};
+
 class FileReference;
 class File;
 class Compiler;
@@ -148,7 +155,7 @@ public:
   /*
    * Return output of this compiler.
    */
-  virtual std::string Output() = 0;
+  virtual const std::string& Output() = 0;
 
   /*
    * Create new FileReference with given type and pointing to file with given name.
@@ -242,10 +249,26 @@ public:
   * Checks whether compilation is in-process or not.
   */
   virtual bool IsInProcess() = 0;
+
   /*
   * Checks whether linkage is in-process or not.
   */
   virtual bool IsLinkInProcess() = 0;
+
+  /*
+  * Checks whether to print compiler's log to stout or not.
+  */
+  virtual bool IsPrintLog() = 0;
+
+  /*
+  * Sets logging level.
+  */
+  virtual void SetLogLevel(LogLevel ll) = 0;
+
+  /*
+  * Gets logging level.
+  */
+  virtual LogLevel GetLogLevel() = 0;
 };
 
 /*

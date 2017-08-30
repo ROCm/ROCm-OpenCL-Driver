@@ -57,6 +57,7 @@
 
 #include <sstream>
 #include <iostream>
+#include <mutex>
 
 #ifdef _WIN32
 #define NODRAWTEXT // avoids #define of DT_INTERNAL
@@ -311,9 +312,10 @@ private:
   std::string llvmBin;
   std::string llvmLinkExe;
   File* compilerTempDir;
-  bool debug;
   bool inprocess;
   bool linkinprocess;
+  LogLevel logLevel;
+  bool printLog;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
@@ -326,7 +328,10 @@ private:
   bool PrepareCompiler(CompilerInstance& clang, const Command& job);
   void InitDriver(std::unique_ptr<Driver>& driver);
   bool InvokeDriver(ArrayRef<const char*> args);
-  bool InvokeTool(ArrayRef<const char*> args, const std::string& sLinker);
+  bool InvokeTool(ArrayRef<const char*> args, const std::string& sToolName);
+  void PrintOptions(ArrayRef<const char*> args, const std::string& sToolName);
+  void PrintJobs(const JobList &jobs);
+  bool Return(bool retValue);
   File* CompilerTempDir() {
     if (!compilerTempDir) { compilerTempDir = NewTempDir(); }
     return compilerTempDir;
@@ -347,7 +352,7 @@ public:
 
   ~AMDGPUCompiler();
 
-  std::string Output() override { OS.flush(); return output; }
+  const std::string& Output() override;
 
   FileReference* NewFileReference(DataType type, const std::string& path, File* parent = 0) override;
 
@@ -377,6 +382,12 @@ public:
   bool IsInProcess() override;
 
   bool IsLinkInProcess() override;
+
+  bool IsPrintLog() override;
+
+  void SetLogLevel(LogLevel ll) override { logLevel = ll; }
+
+  LogLevel GetLogLevel() override;
 };
 
 void AMDGPUCompiler::InitDriver(std::unique_ptr<Driver>& driver)
@@ -459,6 +470,78 @@ bool AMDGPUCompiler::IsLinkInProcess()
   return linkinprocess;
 }
 
+bool AMDGPUCompiler::IsPrintLog()
+{
+  const char* print_log = getenv("AMD_OCL_PRINT_LOG");
+  if (print_log) {
+    if (print_log[0] != '0') { return true; }
+    else { return false; }
+  }
+  return printLog;
+}
+
+LogLevel AMDGPUCompiler::GetLogLevel()
+{
+  const char* log_level = getenv("AMD_OCL_LOG_LEVEL");
+  if (log_level) {
+    std::stringstream ss(log_level);
+    unsigned ll;
+    ss >> ll;
+    switch (ll) {
+      default:
+      case LL_DUMB: return LL_DUMB;
+      case LL_ERRORS: return LL_ERRORS;
+      case LL_LLVM_ONLY: return LL_LLVM_ONLY;
+      case LL_VERBOSE: return LL_VERBOSE;
+    }
+  }
+  return logLevel;
+}
+
+const std::string& AMDGPUCompiler::Output()
+{
+  output = {};
+  if (GetLogLevel() > LL_DUMB) { OS.flush(); }
+  return output;
+}
+
+bool AMDGPUCompiler::Return(bool retValue)
+{
+  if (IsPrintLog()) {
+    static std::mutex m_screen;
+    m_screen.lock();
+    std::cout << Output();
+    m_screen.unlock();
+  }
+  return retValue;
+}
+
+void AMDGPUCompiler::PrintJobs(const JobList &jobs)
+{
+  if (GetLogLevel() < LL_VERBOSE || jobs.empty()) { return; }
+  OS << "\n[AMD OCL] " << jobs.size() << " job" << (jobs.size() == 1 ? "" : "s") << " to fulfill:\n";
+  int i = 1;
+  for (auto const & J : jobs) {
+    OS << (i > 1 ? "\n" : "") << "  JOB [" << i << "] " << std::string(J.getCreator().getName()) << "\n";
+    ArgStringList Args(J.getArguments());
+    for (auto A : Args) {
+      OS << "      " << A << "\n";
+    }
+    ++i;
+  }
+  OS << "\n";
+}
+
+void AMDGPUCompiler::PrintOptions(ArrayRef<const char*> args, const std::string& sToolName)
+{
+  if (GetLogLevel() < LL_VERBOSE) { return; }
+  OS << "\n[AMD OCL] " << sToolName << " options:\n";
+  for (const char* A : args) {
+    OS << "      " << A << "\n";
+  }
+  OS << "\n";
+}
+
 AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
   : OS(output),
     diagOpts(new DiagnosticOptions()),
@@ -467,9 +550,10 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmBin(llvmBin_),
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
-    debug(false),
     inprocess(false),
-    linkinprocess(true)
+    linkinprocess(true),
+    logLevel(LL_ERRORS),
+    printLog(false)
 {
   LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetInfo();
@@ -491,14 +575,8 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
 {
   std::unique_ptr<Driver> driver(new Driver(llvmBin + "/clang", STRING(AMDGCN_TRIPLE), diags));
   InitDriver(driver);
-  if (debug) {
-    OS << "InvokeDriver: ";
-    for (const char* arg : args) {
-      OS << "\"" << arg << "\" ";
-    }
-    OS << "\n";
-  }
   std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
+  PrintJobs(C->getJobs());
   File* out = NewTempFile(DT_INTERNAL);
   File* err = NewTempFile(DT_INTERNAL);
   const StringRef** Redirects = new const StringRef*[3];
@@ -528,12 +606,11 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
       break;
     }
   }
-  if (debug) { driver->PrintActions(*C); }
   std::string outStr, errStr;
   out->ReadToString(outStr);
   err->ReadToString(errStr);
-  if (!outStr.empty()) { OS << outStr; }
-  if (!errStr.empty()) { OS << errStr; }
+  if (GetLogLevel() >= LL_LLVM_ONLY && !outStr.empty()) { OS << outStr; }
+  if (GetLogLevel() >= LL_ERRORS && !errStr.empty()) { OS << errStr; }
 #ifdef LLVM_ON_WIN32
   // Exit status should not be negative on Win32, unless abnormal termination.
   // Once abnormal termiation was caught, negative status should not be
@@ -544,33 +621,26 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args)
   return Res == 0;
 }
 
-bool AMDGPUCompiler::InvokeTool(ArrayRef<const char*> args, const std::string& sLinker)
+bool AMDGPUCompiler::InvokeTool(ArrayRef<const char*> args, const std::string& sToolName)
 {
+  PrintOptions(args, sToolName);
   SmallVector<const char*, 128> args1;
-  args1.push_back(sLinker.c_str());
+  args1.push_back(sToolName.c_str());
   for (const char *arg : args) { args1.push_back(arg); }
   args1.push_back(nullptr);
-  if (debug) {
-    OS << "InvokeTool: " << sLinker << "\n";
-    for (const char* arg : args1) {
-      if (arg) { OS << "\"" << arg << "\" "; }
-    }
-    OS << "\n\n";
-  }
   File* out = NewTempFile(DT_INTERNAL);
   File* err = NewTempFile(DT_INTERNAL);
   const StringRef** Redirects = new const StringRef*[3];
   Redirects[0] = nullptr;
   Redirects[1] = new StringRef(out->Name());
   Redirects[2] = new StringRef(err->Name());
-  int res = llvm::sys::ExecuteAndWait(sLinker, args1.data(), nullptr, Redirects);
+  int res = llvm::sys::ExecuteAndWait(sToolName, args1.data(), nullptr, Redirects);
   std::string outStr, errStr;
   out->ReadToString(outStr);
   err->ReadToString(errStr);
-  if (!outStr.empty()) { OS << outStr; }
-  if (!errStr.empty()) { OS << errStr; }
-  if (res != 0) { return false; }
-  return true;
+  if (GetLogLevel() >= LL_LLVM_ONLY && !outStr.empty()) { OS << outStr; }
+  if (GetLogLevel() >= LL_ERRORS && !errStr.empty()) { OS << errStr; }
+  return res == 0;
 }
 
 FileReference* AMDGPUCompiler::ToInputFile(Data* input, File *parent)
@@ -650,17 +720,17 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     InitDriver(driver);
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
     const JobList &Jobs = C->getJobs();
+    PrintJobs(Jobs);
     CompilerInstance Clang;
-    if (!PrepareCompiler(Clang, *Jobs.begin())) { return false; }
+    if (!PrepareCompiler(Clang, *Jobs.begin())) { return Return(false); }
     // Action Backend_EmitBC
     std::unique_ptr<CodeGenAction> Act(new EmitBCAction());
-    if (!Act.get()) { return false; }
-    if (!Clang.ExecuteAction(*Act)) { return false; }
+    if (!Act.get()) { return Return(false); }
+    if (!Clang.ExecuteAction(*Act)) { return Return(false); }
   } else {
-    if (!InvokeDriver(args)) { return false; }
+    if (!InvokeDriver(args)) { return Return(false); }
   }
-  if (!output->ReadOutputFile(bcFile)) { return false; }
-  return true;
+  return Return(output->ReadOutputFile(bcFile));
 }
 
 const std::vector<std::string> emptyOptions;
@@ -702,13 +772,14 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   }
   File* outputFile = ToOutputFile(output, CompilerTempDir());
   if (IsInProcess() || IsLinkInProcess()) {
+    PrintOptions(args, "llvm linker in-process");
     if (!options.empty()) {
       std::vector<const char*> argv;
       for (auto option : options) {
         argv.push_back("");
         argv.push_back(option.c_str());
         if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
-          return false;
+          return Return(false);
         }
         argv.clear();
       }
@@ -727,8 +798,8 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
       if (verifyModule(*m, &errs())) {
         return emitLinkerError(context, "loaded module '" + Twine(arg) + "' to link is broken.");
       }
-      if (Verbose) {
-        std::cout << "Linking in '" << arg << "'" << std::endl;
+      if (GetLogLevel() >= LL_LLVM_ONLY) {
+        OS << "[AMD OCL] Linking in '" << arg << "'" << "\n";
       }
       if (L.linkInModule(std::move(m), ApplicableFlags)) {
         return emitLinkerError(context, "the module '" + Twine(arg) + "' is not linked.");
@@ -747,9 +818,9 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     for (const std::string& s : options) {
       args.push_back(s.c_str());
     }
-    if (!InvokeTool(args, llvmLinkExe)) { return false; }
+    if (!InvokeTool(args, llvmLinkExe)) { return Return(false); }
   }
-  return output->ReadOutputFile(outputFile);
+  return Return(output->ReadOutputFile(outputFile));
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options)
@@ -768,35 +839,35 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
     InitDriver(driver);
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
     const JobList &Jobs = C->getJobs();
+    PrintJobs(Jobs);
     int i = 1;
     for (auto const & J : Jobs) {
       if (Jobs.size() == 2) {
         std::string sJobName = std::string(J.getCreator().getName());
         if (i == 1 && sJobName == "clang") {
           CompilerInstance Clang;
-          if (!PrepareCompiler(Clang, J)) { return false; }
+          if (!PrepareCompiler(Clang, J)) { return Return(false); }
           // Action Backend_EmitObj
           std::unique_ptr<CodeGenAction> Act(new EmitObjAction());
           if (!Act.get()) { return false; }
-          if (!Clang.ExecuteAction(*Act)) { return false; }
+          if (!Clang.ExecuteAction(*Act)) { return Return(false); }
         }
         else if (i == 2 && sJobName == "amdgpu::Linker") {
           // lld fork
-          if (!InvokeTool(J.getArguments(), llvmBin + +"/ld.lld")) { return false; }
+          if (!InvokeTool(J.getArguments(), llvmBin + +"/ld.lld")) { return Return(false); }
           /* lld statically linked */
           //ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(J.getArguments());
-          //if (!lld::elf::link(ArgRefs, false)) { return false; }
+          //if (!lld::elf::link(ArgRefs, false)) { return Return(false); }
         }
-        else { return false; }
+        else { return Return(false); }
         i++;
       }
-      else { return false; }
+      else { return Return(false); }
     }
   } else {
-    if (!InvokeDriver(args)) { return false; }
+    if (!InvokeDriver(args)) { return Return(false); }
   }
-  if (!output->ReadOutputFile(outputFile)) { return false; }
-  return true;
+  return Return(output->ReadOutputFile(outputFile));
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options)

@@ -756,10 +756,6 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
 {
   std::vector<const char*> args;
   AddCommonArgs(args);
-  File* mapFile = NewTempFile(DT_MAP, "", CompilerTempDir());
-  std::string smap = "-Wl,-Map=";
-  smap.append(mapFile->Name().c_str());
-  args.push_back(smap.c_str());
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());
   File* outputFile = ToOutputFile(output, CompilerTempDir());

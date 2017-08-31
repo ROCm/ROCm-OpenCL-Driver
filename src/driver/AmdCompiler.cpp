@@ -489,7 +489,7 @@ LogLevel AMDGPUCompiler::GetLogLevel()
     ss >> ll;
     switch (ll) {
       default:
-      case LL_DUMB: return LL_DUMB;
+      case LL_QUIET: return LL_QUIET;
       case LL_ERRORS: return LL_ERRORS;
       case LL_LLVM_ONLY: return LL_LLVM_ONLY;
       case LL_VERBOSE: return LL_VERBOSE;
@@ -501,7 +501,7 @@ LogLevel AMDGPUCompiler::GetLogLevel()
 const std::string& AMDGPUCompiler::Output()
 {
   output = {};
-  if (GetLogLevel() > LL_DUMB) { OS.flush(); }
+  if (GetLogLevel() > LL_QUIET) { OS.flush(); }
   return output;
 }
 
@@ -849,7 +849,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
           if (!PrepareCompiler(Clang, J)) { return Return(false); }
           // Action Backend_EmitObj
           std::unique_ptr<CodeGenAction> Act(new EmitObjAction());
-          if (!Act.get()) { return false; }
+          if (!Act.get()) { return Return(false); }
           if (!Clang.ExecuteAction(*Act)) { return Return(false); }
         }
         else if (i == 2 && sJobName == "amdgpu::Linker") {

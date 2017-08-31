@@ -23,7 +23,7 @@ enum DataType {
 };
 
 enum LogLevel {
-  LL_DUMB = 0,
+  LL_QUIET = 0,
   LL_ERRORS,
   LL_LLVM_ONLY,
   LL_VERBOSE,

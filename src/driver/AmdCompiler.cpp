@@ -172,38 +172,22 @@ bool File::Exists() const
 
 class TempFile : public File {
 public:
-  TempFile(DataType type, const std::string& name)
-    : File(type, name) {}
+  TempFile(Compiler* comp, DataType type, const std::string& name)
+    : File(comp, type, name) {}
   ~TempFile();
 };
 
-TempFile::~TempFile()
-{
-  if (getenv("AMD_OCL_KEEP_TMP")) { return; }
-  std::remove(Name().c_str());
-}
-
 class TempDir : public File {
 public:
-  TempDir(const std::string& name)
-    : File(DT_INTERNAL, name) {}
+  TempDir(Compiler* comp, const std::string& name)
+    : File(comp, DT_INTERNAL, name) {}
   ~TempDir();
 };
 
-TempDir::~TempDir()
-{
-  if (getenv("AMD_OCL_KEEP_TMP")) { return; }
-#ifdef _WIN32
-  RemoveDirectory(Name().c_str());
-#else // _WIN32
-  rmdir(Name().c_str());
-#endif // _WIN32
-}
-
-FileReference* BufferReference::ToInputFile(Compiler* comp, File *parent)
+FileReference* BufferReference::ToInputFile(File *parent)
 {
   File* f;
-  f = comp->NewTempFile(Type(), Id(), parent);
+  f = compiler->NewTempFile(Type(), Id(), parent);
   if (!f) { return 0; }
   if (!f->WriteData(ptr, size)) { return 0; }
   return f;
@@ -222,22 +206,22 @@ bool FileReference::ReadToString(std::string& s)
   return true;
 }
 
-File* BufferReference::ToOutputFile(Compiler* comp, File *parent)
+File* BufferReference::ToOutputFile(File *parent)
 {
   assert(false);
   return 0;
 }
 
-FileReference* Buffer::ToInputFile(Compiler* comp, File *parent)
+FileReference* Buffer::ToInputFile(File *parent)
 {
-  File* f = comp->NewTempFile(Type());
+  File* f = compiler->NewTempFile(Type());
   if (!f->WriteData(&buf[0], buf.size())) { delete f; return 0; }
   return f;
 }
 
-File* Buffer::ToOutputFile(Compiler* comp, File* parent)
+File* Buffer::ToOutputFile(File* parent)
 {
-  File* f = comp->NewTempFile(Type(), "", parent);
+  File* f = compiler->NewTempFile(Type(), "", parent);
   return f;
 }
 
@@ -315,7 +299,8 @@ private:
   bool inprocess;
   bool linkinprocess;
   LogLevel logLevel;
-  bool printLog;
+  bool printlog;
+  bool keeptmp;
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
@@ -336,6 +321,7 @@ private:
     if (!compilerTempDir) { compilerTempDir = NewTempDir(); }
     return compilerTempDir;
   }
+  bool IsVar(const std::string& sEnvVar, bool bVar);
 
   FileReference* ToInputFile(Data* input, File *parent);
 
@@ -379,16 +365,38 @@ public:
     }
   }
 
-  bool IsInProcess() override;
+  bool IsInProcess() override { return IsVar("AMD_OCL_IN_PROCESS", inprocess); }
 
-  bool IsLinkInProcess() override;
+  bool IsLinkInProcess() override { return IsVar("AMD_OCL_LINK_IN_PROCESS", linkinprocess); }
 
-  bool IsPrintLog() override;
+  void SetKeepTmp(bool bkeeptmp = true) override { keeptmp = bkeeptmp; }
+
+  bool IsKeepTmp() override { return IsVar("AMD_OCL_KEEP_TMP", keeptmp); }
+
+  void SetPrintLog(bool bprintlog = true) override { printlog = bprintlog; }
+
+  bool IsPrintLog() override { return IsVar("AMD_OCL_PRINT_LOG", printlog); }
 
   void SetLogLevel(LogLevel ll) override { logLevel = ll; }
 
   LogLevel GetLogLevel() override;
 };
+
+TempFile::~TempFile()
+{
+  if (compiler->IsKeepTmp()) { return; }
+  std::remove(Name().c_str());
+}
+
+TempDir::~TempDir()
+{
+  if (compiler->IsKeepTmp()) { return; }
+#ifdef _WIN32
+  RemoveDirectory(Name().c_str());
+#else // _WIN32
+  rmdir(Name().c_str());
+#endif // _WIN32
+}
 
 void AMDGPUCompiler::InitDriver(std::unique_ptr<Driver>& driver)
 {
@@ -450,34 +458,14 @@ bool AMDGPUCompiler::PrepareCompiler(CompilerInstance& clang, const Command& job
   return true;
 }
 
-bool AMDGPUCompiler::IsInProcess()
+bool AMDGPUCompiler::IsVar(const std::string& sEnvVar, bool bVar)
 {
-  const char* in_process_env = getenv("AMD_OCL_IN_PROCESS");
-  if (in_process_env) {
-    if (in_process_env[0] != '0') { return true; }
+  const char* env = getenv(sEnvVar.c_str());
+  if (env) {
+    if (env[0] != '0') { return true; }
     else { return false; }
   }
-  return inprocess;
-}
-
-bool AMDGPUCompiler::IsLinkInProcess()
-{
-  const char* in_process_env = getenv("AMD_OCL_LINK_IN_PROCESS");
-  if (in_process_env) {
-    if (in_process_env[0] != '0') { return true; }
-    else { return false; }
-  }
-  return linkinprocess;
-}
-
-bool AMDGPUCompiler::IsPrintLog()
-{
-  const char* print_log = getenv("AMD_OCL_PRINT_LOG");
-  if (print_log) {
-    if (print_log[0] != '0') { return true; }
-    else { return false; }
-  }
-  return printLog;
+  return bVar;
 }
 
 LogLevel AMDGPUCompiler::GetLogLevel()
@@ -553,7 +541,8 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     inprocess(false),
     linkinprocess(true),
     logLevel(LL_ERRORS),
-    printLog(false)
+    printlog(false),
+    keeptmp(false)
 {
   LLVMInitializeAMDGPUTarget();
   LLVMInitializeAMDGPUTargetInfo();
@@ -645,24 +634,24 @@ bool AMDGPUCompiler::InvokeTool(ArrayRef<const char*> args, const std::string& s
 
 FileReference* AMDGPUCompiler::ToInputFile(Data* input, File *parent)
 {
-  return input->ToInputFile(this, parent);
+  return input->ToInputFile(parent);
 }
 
 File* AMDGPUCompiler::ToOutputFile(Data* output, File* parent)
 {
-  return output->ToOutputFile(this, parent);
+  return output->ToOutputFile(parent);
 }
 
 File* AMDGPUCompiler::NewFile(DataType type, const std::string& name, File* parent)
 {
   std::string fname = parent ? joinf(parent->Name(), name) : name;
-  return AddData(new File(type, fname));
+  return AddData(new File(this, type, fname));
 }
 
 FileReference* AMDGPUCompiler::NewFileReference(DataType type, const std::string& name, File* parent)
 {
   std::string fname = parent ? joinf(parent->Name(), name) : name;
-  return AddData(new FileReference(type, fname));
+  return AddData(new FileReference(this, type, fname));
 }
 
 File* AMDGPUCompiler::NewTempFile(DataType type, const std::string& name, File* parent)
@@ -675,7 +664,7 @@ File* AMDGPUCompiler::NewTempFile(DataType type, const std::string& name, File* 
                         TempFiles::Instance().NewTempName(dir, "t_", ext, pid) :
                         joinf(parent->Name(), name);
   if (FileExists(fname)) { return 0; }
-  return AddData(new TempFile(type, fname));
+  return AddData(new TempFile(this, type, fname));
 }
 
 File* AMDGPUCompiler::NewTempDir(File* parent)
@@ -688,17 +677,17 @@ File* AMDGPUCompiler::NewTempDir(File* parent)
 #else // _WIN32
   mkdir(name.c_str(), 0700);
 #endif // _WIN32
-  return AddData(new TempDir(name));
+  return AddData(new TempDir(this, name));
 }
 
 BufferReference* AMDGPUCompiler::NewBufferReference(DataType type, const char* ptr, size_t size, const std::string& id)
 {
-  return AddData(new BufferReference(type, ptr, size, id));
+  return AddData(new BufferReference(this, type, ptr, size, id));
 }
 
 Buffer* AMDGPUCompiler::NewBuffer(DataType type)
 {
-  return AddData(new Buffer(type));
+  return AddData(new Buffer(this, type));
 }
 
 bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options)

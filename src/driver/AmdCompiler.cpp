@@ -101,13 +101,6 @@ public:
   void print(DiagnosticPrinter &DP) const override { DP << Message; }
 };
 
-static std::string joinf(const std::string& p1, const std::string& p2) {
-  std::string r;
-  if (!p1.empty()) { r += p1; r += "/"; }
-  r += p2;
-  return r;
-}
-
 const char* DataTypeExt(DataType type) {
   switch (type) {
     case DT_CL: return "cl";
@@ -285,12 +278,10 @@ private:
   void PrintOptions(ArrayRef<const char*> args, const std::string& sToolName);
   void PrintJobs(const JobList &jobs);
   bool Return(bool retValue);
-  File* CompilerTempDir() {
-    if (!compilerTempDir) { compilerTempDir = NewTempDir(); }
-    return compilerTempDir;
-  }
+  File* CompilerTempDir();
   bool IsVar(const std::string& sEnvVar, bool bVar);
   bool EmitLinkerError(LLVMContext &context, const Twine &message);
+  std::string JoinFileName(const std::string& p1, const std::string& p2);
 
   FileReference* ToInputFile(Data* input, File *parent);
 
@@ -327,12 +318,7 @@ public:
 
   bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) override;
 
-  void SetInProcess(bool binprocess = true) override {
-    inprocess = binprocess;
-    if (IsInProcess()) {
-      LLVMInitializeAMDGPUAsmPrinter();
-    }
-  }
+  void SetInProcess(bool binprocess = true) override;
 
   bool IsInProcess() override { return IsVar("AMD_OCL_IN_PROCESS", inprocess); }
 
@@ -380,6 +366,23 @@ TempDir::~TempDir() {
 #else // _WIN32
   rmdir(Name().c_str());
 #endif // _WIN32
+}
+
+File* AMDGPUCompiler::CompilerTempDir() {
+  if (!compilerTempDir) { compilerTempDir = NewTempDir(); }
+  return compilerTempDir;
+}
+
+void AMDGPUCompiler::SetInProcess(bool binprocess) {
+  inprocess = binprocess;
+  if (IsInProcess()) { LLVMInitializeAMDGPUAsmPrinter(); }
+}
+
+std::string AMDGPUCompiler::JoinFileName(const std::string& p1, const std::string& p2) {
+  std::string r;
+  if (!p1.empty()) { r += p1; r += "/"; }
+  r += p2;
+  return r;
 }
 
 void AMDGPUCompiler::InitDriver(std::unique_ptr<Driver>& driver) {
@@ -609,12 +612,12 @@ File* AMDGPUCompiler::ToOutputFile(Data* output, File* parent) {
 }
 
 File* AMDGPUCompiler::NewFile(DataType type, const std::string& name, File* parent) {
-  std::string fname = parent ? joinf(parent->Name(), name) : name;
+  std::string fname = parent ? JoinFileName(parent->Name(), name) : name;
   return AddData(new File(this, type, fname));
 }
 
 FileReference* AMDGPUCompiler::NewFileReference(DataType type, const std::string& name, File* parent) {
-  std::string fname = parent ? joinf(parent->Name(), name) : name;
+  std::string fname = parent ? JoinFileName(parent->Name(), name) : name;
   return AddData(new FileReference(this, type, fname));
 }
 
@@ -625,7 +628,7 @@ File* AMDGPUCompiler::NewTempFile(DataType type, const std::string& name, File* 
   bool pid = !parent;
   std::string fname = name.empty() ?
                         TempFiles::Instance().NewTempName(dir, "t_", ext, pid) :
-                        joinf(parent->Name(), name);
+                        JoinFileName(parent->Name(), name);
   if (FileExists(fname)) { return 0; }
   return AddData(new TempFile(this, type, fname));
 }

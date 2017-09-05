@@ -523,6 +523,7 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
   LLVMInitializeAMDGPUTargetMC();
   LLVMInitializeAMDGPUDisassembler();
   if (IsInProcess()) {
+    LLVMInitializeAMDGPUAsmParser();
     LLVMInitializeAMDGPUAsmPrinter();
   }
 }

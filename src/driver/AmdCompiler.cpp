@@ -275,8 +275,9 @@ private:
   void InitDriver(std::unique_ptr<Driver>& driver);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeTool(ArrayRef<const char*> args, const std::string& sToolName);
-  void PrintOptions(ArrayRef<const char*> args, const std::string& sToolName);
+  void PrintOptions(ArrayRef<const char*> args, const std::string& sToolName, bool isInProcess);
   void PrintJobs(const JobList &jobs);
+  void PrintPhase(const std::string& phase, bool isInProcess);
   bool Return(bool retValue);
   File* CompilerTempDir();
   bool IsVar(const std::string& sEnvVar, bool bVar);
@@ -483,11 +484,15 @@ bool AMDGPUCompiler::Return(bool retValue) {
 
 void AMDGPUCompiler::PrintJobs(const JobList &jobs) {
   if (GetLogLevel() < LL_VERBOSE || jobs.empty()) { return; }
-  OS << "\n[AMD OCL] " << jobs.size() << " job" << (jobs.size() == 1 ? "" : "s") << " to fulfill:\n";
+  OS << "\n[AMD OCL] " << jobs.size() << " job" << (jobs.size() == 1 ? "" : "s") << ":\n";
   int i = 1;
   for (auto const & J : jobs) {
-    OS << (i > 1 ? "\n" : "") << "  JOB [" << i << "] " << std::string(J.getCreator().getName()) << "\n";
+    std::string sJobName(J.getCreator().getName());
+    OS << (i > 1 ? "\n" : "") << "  JOB [" << i << "] " << sJobName << "\n";
     ArgStringList Args(J.getArguments());
+    if (sJobName == "clang") {
+      FilterArgs(Args);
+    }
     for (auto A : Args) {
       OS << "      " << A << "\n";
     }
@@ -496,9 +501,14 @@ void AMDGPUCompiler::PrintJobs(const JobList &jobs) {
   OS << "\n";
 }
 
-void AMDGPUCompiler::PrintOptions(ArrayRef<const char*> args, const std::string& sToolName) {
+void AMDGPUCompiler::PrintPhase(const std::string& phase, bool isInProcess) {
   if (GetLogLevel() < LL_VERBOSE) { return; }
-  OS << "\n[AMD OCL] " << sToolName << " options:\n";
+  OS << "\n[AMD OCL] " << "Phase: " << phase << (isInProcess ? " [in-process]" : "") << "\n";
+}
+
+void AMDGPUCompiler::PrintOptions(ArrayRef<const char*> args, const std::string& sToolName, bool isInProcess) {
+  if (GetLogLevel() < LL_VERBOSE) { return; }
+  OS << "\n[AMD OCL] " << sToolName << (isInProcess ? " [in-process]" : "") << " options:\n";
   for (const char* A : args) {
     OS << "      " << A << "\n";
   }
@@ -583,7 +593,7 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args) {
 }
 
 bool AMDGPUCompiler::InvokeTool(ArrayRef<const char*> args, const std::string& sToolName) {
-  PrintOptions(args, sToolName);
+  PrintOptions(args, sToolName, false);
   SmallVector<const char*, 128> args1;
   args1.push_back(sToolName.c_str());
   for (const char *arg : args) { args1.push_back(arg); }
@@ -654,6 +664,7 @@ Buffer* AMDGPUCompiler::NewBuffer(DataType type) {
 }
 
 bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options) {
+  PrintPhase("CompileToLLVMBitcode", IsInProcess());
   std::vector<const char*> args;
   AddCommonArgs(args);
   args.push_back("-c");
@@ -666,6 +677,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
+  PrintOptions(args, "clang Driver", IsInProcess());
   if (IsInProcess()) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     InitDriver(driver);
@@ -719,25 +731,32 @@ bool AMDGPUCompiler::EmitLinkerError(LLVMContext &context, const Twine &message)
 }
 
 bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) {
+  bool bIsInProcess = IsInProcess() || IsLinkInProcess();
+  PrintPhase("LinkLLVMBitcode", bIsInProcess);
   std::vector<const char*> args;
   for (Data* input : inputs) {
     FileReference* inputFile = ToInputFile(input, CompilerTempDir());
     args.push_back(inputFile->Name().c_str());
   }
   File* outputFile = ToOutputFile(output, CompilerTempDir());
-  if (IsInProcess() || IsLinkInProcess()) {
-    PrintOptions(args, "llvm linker in-process");
-    if (!options.empty()) {
-      std::vector<const char*> argv;
-      for (auto option : options) {
-        argv.push_back("");
-        argv.push_back(option.c_str());
-        if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
-          return Return(false);
-        }
-        argv.clear();
+  if (!options.empty()) {
+    std::vector<const char*> argv;
+    for (auto option : options) {
+      argv.push_back("");
+      argv.push_back(option.c_str());
+      args.push_back(option.c_str());
+      if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
+        return Return(false);
       }
+      argv.clear();
     }
+  }
+  if (!bIsInProcess) {
+    args.push_back("-o");
+    args.push_back(outputFile->Name().c_str());
+  }
+  if (bIsInProcess) {
+    PrintOptions(args, "llvm linker", bIsInProcess);
     LLVMContext context;
     context.setDiagnosticHandler(DiagnosticHandler, this, true);
     auto Composite = make_unique<llvm::Module>("composite", context);
@@ -767,17 +786,13 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     WriteBitcodeToFile(Composite.get(), out.os());
     out.keep();
   } else {
-    args.push_back("-o");
-    args.push_back(outputFile->Name().c_str());
-    for (const std::string& s : options) {
-      args.push_back(s.c_str());
-    }
     if (!InvokeTool(args, llvmLinkExe)) { return Return(false); }
   }
   return Return(output->ReadOutputFile(outputFile));
 }
 
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options) {
+  PrintPhase("CompileAndLinkExecutable", IsInProcess());
   std::vector<const char*> args;
   AddCommonArgs(args);
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
@@ -787,6 +802,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
+  PrintOptions(args, "clang Driver", IsInProcess());
   if (IsInProcess()) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     InitDriver(driver);
@@ -796,7 +812,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
     int i = 1;
     for (auto const & J : Jobs) {
       if (Jobs.size() == 2) {
-        std::string sJobName = std::string(J.getCreator().getName());
+        std::string sJobName(J.getCreator().getName());
         if (i == 1 && sJobName == "clang") {
           CompilerInstance Clang;
           if (!PrepareCompiler(Clang, J)) { return Return(false); }

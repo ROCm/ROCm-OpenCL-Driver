@@ -513,7 +513,7 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmBin(llvmBin_),
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
-    inprocess(false),
+    inprocess(true),
     linkinprocess(true),
     logLevel(LL_ERRORS),
     printlog(false),

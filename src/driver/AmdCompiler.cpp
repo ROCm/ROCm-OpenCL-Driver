@@ -265,7 +265,7 @@ private:
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
-  void AddCommonArgs(std::vector<const char*>& args);
+  void StartWithCommonArgs(std::vector<const char*>& args);
   void ResetOptionsToDefault();
   // Filter out option(s) contradictory to in-process compilation
   void FilterArgs(ArgStringList& args);
@@ -392,7 +392,11 @@ void AMDGPUCompiler::InitDriver(std::unique_ptr<Driver>& driver) {
   driver->setCheckInputsExist(false);
 }
 
-void AMDGPUCompiler::AddCommonArgs(std::vector<const char*>& args) {
+void AMDGPUCompiler::StartWithCommonArgs(std::vector<const char*>& args) {
+  // Workaround for flawed Driver::BuildCompilation(...) implementation,
+  // which eliminates 1st argument, cause it actually awaits argv[0].
+  args.clear();
+  args.push_back("");
   args.push_back("-x cl");
 }
 
@@ -667,7 +671,7 @@ Buffer* AMDGPUCompiler::NewBuffer(DataType type) {
 bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::vector<std::string>& options) {
   PrintPhase("CompileToLLVMBitcode", IsInProcess());
   std::vector<const char*> args;
-  AddCommonArgs(args);
+  StartWithCommonArgs(args);
   args.push_back("-c");
   args.push_back("-emit-llvm");
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
@@ -795,7 +799,7 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options) {
   PrintPhase("CompileAndLinkExecutable", IsInProcess());
   std::vector<const char*> args;
-  AddCommonArgs(args);
+  StartWithCommonArgs(args);
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
   args.push_back(inputFile->Name().c_str());
   File* outputFile = ToOutputFile(output, CompilerTempDir());

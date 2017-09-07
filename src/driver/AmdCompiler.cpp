@@ -767,20 +767,20 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
       SMDiagnostic error;
       auto m = getLazyIRFileModule(arg, error, context);
       if (!m.get()) {
-        return EmitLinkerError(context, "The module '" + Twine(arg) + "' loading failed.");
+        return Return(EmitLinkerError(context, "The module '" + Twine(arg) + "' loading failed."));
       }
       if (verifyModule(*m, &errs())) {
-        return EmitLinkerError(context, "The loaded module '" + Twine(arg) + "' to link is broken.");
+        return Return(EmitLinkerError(context, "The loaded module '" + Twine(arg) + "' to link is broken."));
       }
       if (GetLogLevel() >= LL_LLVM_ONLY) {
         OS << "[AMD OCL] Linking in '" << arg << "'" << "\n";
       }
       if (L.linkInModule(std::move(m), ApplicableFlags)) {
-        return EmitLinkerError(context, "The module '" + Twine(arg) + "' is not linked.");
+        return Return(EmitLinkerError(context, "The module '" + Twine(arg) + "' is not linked."));
       }
     }
     if (verifyModule(*Composite, &errs())) {
-      return EmitLinkerError(context, "The linked module '" + outputFile->Name() + "' is broken.");
+      return Return(EmitLinkerError(context, "The linked module '" + outputFile->Name() + "' is broken."));
     }
     std::error_code ec;
     llvm::tool_output_file out(outputFile->Name(), ec, sys::fs::F_None);

@@ -397,7 +397,8 @@ void AMDGPUCompiler::StartWithCommonArgs(std::vector<const char*>& args) {
   // which eliminates 1st argument, cause it actually awaits argv[0].
   args.clear();
   args.push_back("");
-  args.push_back("-x cl");
+  args.push_back("-x");
+  args.push_back("cl");
 }
 
 void AMDGPUCompiler::FilterArgs(ArgStringList& args) {

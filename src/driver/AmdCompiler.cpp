@@ -397,8 +397,6 @@ void AMDGPUCompiler::StartWithCommonArgs(std::vector<const char*>& args) {
   // which eliminates 1st argument, cause it actually awaits argv[0].
   args.clear();
   args.push_back("");
-  args.push_back("-x");
-  args.push_back("cl");
 }
 
 void AMDGPUCompiler::FilterArgs(ArgStringList& args) {
@@ -673,6 +671,8 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
   PrintPhase("CompileToLLVMBitcode", IsInProcess());
   std::vector<const char*> args;
   StartWithCommonArgs(args);
+  args.push_back("-x");
+  args.push_back("cl");
   args.push_back("-c");
   args.push_back("-emit-llvm");
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());

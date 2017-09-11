@@ -751,13 +751,16 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   if (!options.empty()) {
     std::vector<const char*> argv;
     for (auto option : options) {
-      argv.push_back("");
-      argv.push_back(option.c_str());
-      args.push_back(option.c_str());
-      if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
-        return Return(false);
+      if (bIsInProcess) {
+        argv.push_back("");
+        argv.push_back(option.c_str());
+        if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
+          return Return(false);
+        }
+        argv.clear();
+      } else {
+        args.push_back(option.c_str());
       }
-      argv.clear();
     }
   }
   if (!bIsInProcess) {

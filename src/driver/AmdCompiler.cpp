@@ -376,7 +376,10 @@ File* AMDGPUCompiler::CompilerTempDir() {
 
 void AMDGPUCompiler::SetInProcess(bool binprocess) {
   inprocess = binprocess;
-  if (IsInProcess()) { LLVMInitializeAMDGPUAsmPrinter(); }
+  if (IsInProcess()) {
+    LLVMInitializeAMDGPUAsmParser();
+    LLVMInitializeAMDGPUAsmPrinter();
+  }
 }
 
 std::string AMDGPUCompiler::JoinFileName(const std::string& p1, const std::string& p2) {

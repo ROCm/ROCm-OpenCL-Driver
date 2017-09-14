@@ -557,10 +557,8 @@ bool AMDGPUCompiler::InvokeDriver(ArrayRef<const char*> args) {
   PrintJobs(C->getJobs());
   File* out = NewTempFile(DT_INTERNAL);
   File* err = NewTempFile(DT_INTERNAL);
-  const StringRef** Redirects = new const StringRef*[3];
-  Redirects[0] = nullptr;
-  Redirects[1] = new StringRef(out->Name());
-  Redirects[2] = new StringRef(err->Name());
+  Optional<StringRef> Redirects[] =
+      {None, StringRef(out->Name()), StringRef(err->Name())};
   C->Redirect(Redirects);
   int Res = 0;
   SmallVector<std::pair<int, const Command *>, 4> failingCommands;
@@ -607,10 +605,8 @@ bool AMDGPUCompiler::InvokeTool(ArrayRef<const char*> args, const std::string& s
   args1.push_back(nullptr);
   File* out = NewTempFile(DT_INTERNAL);
   File* err = NewTempFile(DT_INTERNAL);
-  const StringRef** Redirects = new const StringRef*[3];
-  Redirects[0] = nullptr;
-  Redirects[1] = new StringRef(out->Name());
-  Redirects[2] = new StringRef(err->Name());
+  Optional<StringRef> Redirects[] =
+      {None, StringRef(out->Name()), StringRef(err->Name())};
   int res = llvm::sys::ExecuteAndWait(sToolName, args1.data(), nullptr, Redirects);
   std::string outStr, errStr;
   out->ReadToString(outStr);

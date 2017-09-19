@@ -246,21 +246,29 @@ public:
 class AMDGPUCompiler : public Compiler {
 private:
   struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {
-    void DiagnosticHandler(const DiagnosticInfo &DI, void *C) {
-      if (!C) { return; }
-      AMDGPUCompiler* compiler = static_cast<AMDGPUCompiler*>(C);
-      if (compiler->GetLogLevel() < LL_VERBOSE) { return; }
+    AMDGPUCompiler *Compiler = nullptr;
+
+    AMDGPUCompilerDiagnosticHandler(AMDGPUCompiler *Compiler)
+      : Compiler(Compiler) {}
+
+    bool handleDiagnostics(const DiagnosticInfo &DI) override {
+      assert(Compiler && "Compiler cannot be nullptr");
+
+      if (Compiler->GetLogLevel() < LL_VERBOSE) { return true; }
+
       unsigned Severity = DI.getSeverity();
       switch (Severity) {
       case DS_Error:
-        compiler->OS << "ERROR: ";
+        Compiler->OS << "ERROR: ";
         break;
       default:
         llvm_unreachable("Only expecting errors");
       }
       DiagnosticPrinterRawOStream DP(errs());
       DI.print(DP);
-      compiler->OS << "\n";
+      Compiler->OS << "\n";
+
+      return true;
     }
   };
 
@@ -766,7 +774,8 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   if (bIsInProcess) {
     PrintOptions(args, "llvm linker", bIsInProcess);
     LLVMContext context;
-    context.setDiagnosticHandler(llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(), true);
+    context.setDiagnosticHandler(
+        llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
     auto Composite = make_unique<llvm::Module>("composite", context);
     Linker L(*Composite);
     unsigned ApplicableFlags = Linker::Flags::None;

@@ -89,7 +89,7 @@ namespace opencl_driver {
 
 class AMDGPUCompiler;
 struct AMDGPUCompilerDiagnosticHandler;
-  
+
 class LinkerDiagnosticInfo : public DiagnosticInfo {
 private:
   const Twine &Message;
@@ -338,18 +338,18 @@ public:
   LogLevel GetLogLevel() override;
 };
 
-struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {  
+struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {
   void DiagnosticHandler(const DiagnosticInfo &DI, void *C) {
     if (!C) { return; }
     AMDGPUCompiler* compiler = static_cast<AMDGPUCompiler*>(C);
     if (compiler->GetLogLevel() < LL_VERBOSE) { return; }
     unsigned Severity = DI.getSeverity();
     switch (Severity) {
-      case DS_Error:
-	compiler->OS << "ERROR: ";
-	break;
-      default:
-	llvm_unreachable("Only expecting errors");
+    case DS_Error:
+      compiler->OS << "ERROR: ";
+      break;
+    default:
+      llvm_unreachable("Only expecting errors");
     }
     DiagnosticPrinterRawOStream DP(errs());
     DI.print(DP);

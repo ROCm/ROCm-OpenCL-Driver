@@ -253,9 +253,7 @@ private:
 
     bool handleDiagnostics(const DiagnosticInfo &DI) override {
       assert(Compiler && "Compiler cannot be nullptr");
-
       if (Compiler->GetLogLevel() < LL_VERBOSE) { return true; }
-
       unsigned Severity = DI.getSeverity();
       switch (Severity) {
       case DS_Error:
@@ -267,7 +265,6 @@ private:
       DiagnosticPrinterRawOStream DP(errs());
       DI.print(DP);
       Compiler->OS << "\n";
-
       return true;
     }
   };

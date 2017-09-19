@@ -88,7 +88,6 @@ namespace amd {
 namespace opencl_driver {
 
 class AMDGPUCompiler;
-struct AMDGPUCompilerDiagnosticHandler;
 
 class LinkerDiagnosticInfo : public DiagnosticInfo {
 private:
@@ -245,8 +244,26 @@ public:
 };
 
 class AMDGPUCompiler : public Compiler {
-  friend struct AMDGPUCompilerDiagnosticHandler;
 private:
+  struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {
+    void DiagnosticHandler(const DiagnosticInfo &DI, void *C) {
+      if (!C) { return; }
+      AMDGPUCompiler* compiler = static_cast<AMDGPUCompiler*>(C);
+      if (compiler->GetLogLevel() < LL_VERBOSE) { return; }
+      unsigned Severity = DI.getSeverity();
+      switch (Severity) {
+      case DS_Error:
+        compiler->OS << "ERROR: ";
+        break;
+      default:
+        llvm_unreachable("Only expecting errors");
+      }
+      DiagnosticPrinterRawOStream DP(errs());
+      DI.print(DP);
+      compiler->OS << "\n";
+    }
+  };
+
   std::string output;
   llvm::raw_string_ostream OS;
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts;
@@ -336,25 +353,6 @@ public:
   void SetLogLevel(LogLevel ll) override { logLevel = ll; }
 
   LogLevel GetLogLevel() override;
-};
-
-struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {
-  void DiagnosticHandler(const DiagnosticInfo &DI, void *C) {
-    if (!C) { return; }
-    AMDGPUCompiler* compiler = static_cast<AMDGPUCompiler*>(C);
-    if (compiler->GetLogLevel() < LL_VERBOSE) { return; }
-    unsigned Severity = DI.getSeverity();
-    switch (Severity) {
-    case DS_Error:
-      compiler->OS << "ERROR: ";
-      break;
-    default:
-      llvm_unreachable("Only expecting errors");
-    }
-    DiagnosticPrinterRawOStream DP(errs());
-    DI.print(DP);
-    compiler->OS << "\n";
-  }
 };
 
 TempFile::~TempFile() {

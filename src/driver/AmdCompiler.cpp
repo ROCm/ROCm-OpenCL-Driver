@@ -88,8 +88,7 @@ namespace amd {
 namespace opencl_driver {
 
 class AMDGPUCompiler;
-struct AMDGPUCompilerDiagnosticHandler;
-  
+
 class LinkerDiagnosticInfo : public DiagnosticInfo {
 private:
   const Twine &Message;
@@ -245,8 +244,31 @@ public:
 };
 
 class AMDGPUCompiler : public Compiler {
-  friend struct AMDGPUCompilerDiagnosticHandler;
 private:
+  struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {
+    AMDGPUCompiler *Compiler = nullptr;
+
+    AMDGPUCompilerDiagnosticHandler(AMDGPUCompiler *Compiler)
+      : Compiler(Compiler) {}
+
+    bool handleDiagnostics(const DiagnosticInfo &DI) override {
+      assert(Compiler && "Compiler cannot be nullptr");
+      if (Compiler->GetLogLevel() < LL_VERBOSE) { return true; }
+      unsigned Severity = DI.getSeverity();
+      switch (Severity) {
+      case DS_Error:
+        Compiler->OS << "ERROR: ";
+        break;
+      default:
+        llvm_unreachable("Only expecting errors");
+      }
+      DiagnosticPrinterRawOStream DP(errs());
+      DI.print(DP);
+      Compiler->OS << "\n";
+      return true;
+    }
+  };
+
   std::string output;
   llvm::raw_string_ostream OS;
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts;
@@ -336,25 +358,6 @@ public:
   void SetLogLevel(LogLevel ll) override { logLevel = ll; }
 
   LogLevel GetLogLevel() override;
-};
-
-struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {  
-  void DiagnosticHandler(const DiagnosticInfo &DI, void *C) {
-    if (!C) { return; }
-    AMDGPUCompiler* compiler = static_cast<AMDGPUCompiler*>(C);
-    if (compiler->GetLogLevel() < LL_VERBOSE) { return; }
-    unsigned Severity = DI.getSeverity();
-    switch (Severity) {
-      case DS_Error:
-	compiler->OS << "ERROR: ";
-	break;
-      default:
-	llvm_unreachable("Only expecting errors");
-    }
-    DiagnosticPrinterRawOStream DP(errs());
-    DI.print(DP);
-    compiler->OS << "\n";
-  }
 };
 
 TempFile::~TempFile() {
@@ -768,7 +771,8 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   if (bIsInProcess) {
     PrintOptions(args, "llvm linker", bIsInProcess);
     LLVMContext context;
-    context.setDiagnosticHandler(llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(), true);
+    context.setDiagnosticHandler(
+        llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
     auto Composite = make_unique<llvm::Module>("composite", context);
     Linker L(*Composite);
     unsigned ApplicableFlags = Linker::Flags::None;

@@ -796,7 +796,7 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
       return Return(EmitLinkerError(context, "The linked module '" + outputFile->Name() + "' is broken."));
     }
     std::error_code ec;
-    llvm::tool_output_file out(outputFile->Name(), ec, sys::fs::F_None);
+    llvm::ToolOutputFile out(outputFile->Name(), ec, sys::fs::F_None);
     WriteBitcodeToFile(Composite.get(), out.os());
     out.keep();
   } else {

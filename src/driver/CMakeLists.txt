@@ -47,7 +47,6 @@ file(GLOB sources
 
 include_directories(${LLVM_INCLUDE_DIR})
 include_directories(${LLVM_INCLUDE_DIR}/llvm/Target/AMDGPU)
-include_directories(${LLD_INCLUDE_DIR})
 
 link_directories(${LLVM_LIBRARY_DIRS})
 add_library(opencl_driver ${sources})
@@ -81,9 +80,6 @@ target_link_libraries(opencl_driver
   clangLex
   clangBasic
   clangCodeGen
-  lldELF
-  lldCore
-  LLVMDebugInfoDWARF
 )
 target_link_libraries(opencl_driver ${llvm_libs})
 target_include_directories(opencl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

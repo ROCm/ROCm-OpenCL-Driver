@@ -54,6 +54,7 @@
 #include "llvm/Linker/Linker.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
+#include "lld/Driver/Driver.h"
 
 #include <sstream>
 #include <iostream>
@@ -836,11 +837,14 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
           if (!Clang.ExecuteAction(*Act)) { return Return(false); }
         }
         else if (i == 2 && sJobName == "amdgpu::Linker") {
-          // lld fork
-          if (!InvokeTool(J.getArguments(), llvmBin + +"/ld.lld")) { return Return(false); }
-          /* lld statically linked */
-          //ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(J.getArguments());
-          //if (!lld::elf::link(ArgRefs, false)) { return Return(false); }
+          driver::ArgStringList Args(J.getArguments());
+          Args.insert(Args.begin(),"");
+          ArrayRef<const char*> ArgRefs = llvm::makeArrayRef(Args);
+          static std::mutex m_screen;
+          m_screen.lock();
+          bool lldRet = lld::elf::link(ArgRefs, false, OS);
+          m_screen.unlock();
+          if (!lldRet) { return Return(false); }
         }
         else { return Return(false); }
         i++;

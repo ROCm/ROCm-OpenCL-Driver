@@ -54,7 +54,7 @@
 #include "llvm/Linker/Linker.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
-#include "lld/Driver/Driver.h"
+#include "lld/Common/Driver.h"
 
 #include <sstream>
 #include <iostream>

@@ -255,11 +255,6 @@ public:
   virtual bool IsInProcess() = 0;
 
   /*
-  * Checks whether linkage is in-process or not.
-  */
-  virtual bool IsLinkInProcess() = 0;
-
-  /*
   * Enables or disables keeping compiler's temporary files.
   */
   virtual void SetKeepTmp(bool bkeeptmp = true) = 0;

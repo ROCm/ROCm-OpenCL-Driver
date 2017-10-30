@@ -22,6 +22,13 @@ enum DataType {
   DT_INTERNAL,
 };
 
+enum LogLevel {
+  LL_QUIET = 0,
+  LL_ERRORS,
+  LL_LLVM_ONLY,
+  LL_VERBOSE,
+};
+
 class FileReference;
 class File;
 class Compiler;
@@ -36,16 +43,20 @@ private:
   std::string id;
   DataType type;
 
+protected:
+  Compiler* compiler;
+
 public:
-  Data(DataType type_, const std::string& id_ = "")
-    : id(id_), type(type_) {}
+  Data(Compiler* comp, DataType type_, const std::string& id_ = "")
+    : id(id_), type(type_), compiler(comp) {}
   virtual ~Data() {}
   DataType Type() const { return type; }
   const std::string& Id() const { return id; }
   virtual bool IsReadOnly() const = 0;
-  virtual FileReference* ToInputFile(Compiler* comp, File *parent) = 0;
-  virtual File* ToOutputFile(Compiler* comp, File *parent) = 0;
+  virtual FileReference* ToInputFile(File *parent) = 0;
+  virtual File* ToOutputFile(File *parent) = 0;
   virtual bool ReadOutputFile(File* f) = 0;
+  Compiler* GetCompiler() { return compiler; }
 };
 
 bool FileExists(const std::string& name);
@@ -58,14 +69,14 @@ private:
   std::string name;
 
 public:
-  FileReference(DataType type, const std::string& name_)
-    : Data(type),
+  FileReference(Compiler* comp, DataType type, const std::string& name_)
+    : Data(comp, type),
       name(name_) {}
 
   bool IsReadOnly() const override { return true; }
   const std::string& Name() const { return name; }
-  FileReference* ToInputFile(Compiler* comp, File *parent) override { return this; }
-  File* ToOutputFile(Compiler* comp, File *parent) override { assert(false); return 0; }
+  FileReference* ToInputFile(File *parent) override { return this; }
+  File* ToOutputFile(File *parent) override { assert(false); return 0; }
   bool ReadOutputFile(File* f) override { assert(false); return false; }
   bool ReadToString(std::string& s);
   bool Exists() const;
@@ -76,11 +87,11 @@ public:
  */
 class File : public FileReference {
 public:
-  File(DataType type, const std::string& name)
-    : FileReference(type, name) {}
+  File(Compiler* comp, DataType type, const std::string& name)
+    : FileReference(comp, type, name) {}
 
   bool IsReadOnly() const override { return false; }
-  File* ToOutputFile(Compiler* comp, File *parent) override { return this; }
+  File* ToOutputFile(File *parent) override { return this; }
   bool ReadOutputFile(File* f) override { assert(this == f); return true; }
   bool WriteData(const char* ptr, size_t size);
   bool Exists() const;
@@ -95,15 +106,15 @@ private:
   size_t size;
 
 public:
-  BufferReference(DataType type, const char* ptr_, size_t size_, const std::string& id)
-    : Data(type, id),
+  BufferReference(Compiler* comp, DataType type, const char* ptr_, size_t size_, const std::string& id)
+    : Data(comp, type, id),
       ptr(ptr_), size(size_) {}
 
   bool IsReadOnly() const override { return true; }
   const char* Ptr() const { return ptr; }
   size_t Size() const { return size; }
-  FileReference* ToInputFile(Compiler* comp, File *parent) override;
-  File* ToOutputFile(Compiler* comp, File *parent) override;
+  FileReference* ToInputFile(File *parent) override;
+  File* ToOutputFile(File *parent) override;
   bool ReadOutputFile(File* f) override { assert(false); return false; }
 };
 
@@ -115,8 +126,8 @@ private:
   std::vector<char> buf;
 
 public:
-  Buffer(DataType type)
-    : Data(type) {}
+  Buffer(Compiler* comp, DataType type)
+    : Data(comp, type) {}
 
   bool IsReadOnly() const override { return false; }
   std::vector<char>& Buf() { return buf; }
@@ -124,8 +135,8 @@ public:
   const char* Ptr() const { return &buf[0]; }
   size_t Size() const { return buf.size(); }
   bool IsEmpty() const { return buf.size() == 0; }
-  FileReference* ToInputFile(Compiler* comp, File *parent) override;
-  File* ToOutputFile(Compiler* comp, File *parent) override;
+  FileReference* ToInputFile(File *parent) override;
+  File* ToOutputFile(File *parent) override;
   bool ReadOutputFile(File* f) override;
 };
 
@@ -148,7 +159,7 @@ public:
   /*
    * Return output of this compiler.
    */
-  virtual std::string Output() = 0;
+  virtual const std::string& Output() = 0;
 
   /*
    * Create new FileReference with given type and pointing to file with given name.
@@ -229,7 +240,7 @@ public:
   virtual bool CompileAndLinkExecutable(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) = 0;
 
   /*
-   *
+   * Dumps Executable as text to the specified file.
    */
   virtual bool DumpExecutableAsText(Buffer* exec, File* dump) = 0;
 
@@ -242,10 +253,41 @@ public:
   * Checks whether compilation is in-process or not.
   */
   virtual bool IsInProcess() = 0;
+
   /*
   * Checks whether linkage is in-process or not.
   */
   virtual bool IsLinkInProcess() = 0;
+
+  /*
+  * Enables or disables keeping compiler's temporary files.
+  */
+  virtual void SetKeepTmp(bool bkeeptmp = true) = 0;
+
+  /*
+  * Checks whether compiler's temporary files are kept or not.
+  */
+  virtual bool IsKeepTmp() = 0;
+
+  /*
+  * Enables or disables printing compiler's log to stout.
+  */
+  virtual void SetPrintLog(bool bprintlog = true) = 0;
+  
+  /*
+  * Checks whether to print compiler's log to stout or not.
+  */
+  virtual bool IsPrintLog() = 0;
+
+  /*
+  * Sets logging level.
+  */
+  virtual void SetLogLevel(LogLevel ll) = 0;
+
+  /*
+  * Gets logging level.
+  */
+  virtual LogLevel GetLogLevel() = 0;
 };
 
 /*

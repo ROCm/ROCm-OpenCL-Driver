@@ -54,6 +54,7 @@
 #include "llvm/Linker/Linker.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
+#include "lld/Common/Driver.h"
 
 #include <sstream>
 #include <iostream>
@@ -280,7 +281,6 @@ private:
   std::string llvmLinkExe;
   File* compilerTempDir;
   bool inprocess;
-  bool linkinprocess;
   LogLevel logLevel;
   bool printlog;
   bool keeptmp;
@@ -344,8 +344,6 @@ public:
   void SetInProcess(bool binprocess = true) override;
 
   bool IsInProcess() override { return IsVar("AMD_OCL_IN_PROCESS", inprocess); }
-
-  bool IsLinkInProcess() override { return IsVar("AMD_OCL_LINK_IN_PROCESS", linkinprocess); }
 
   void SetKeepTmp(bool bkeeptmp = true) override { keeptmp = bkeeptmp; }
 
@@ -535,7 +533,6 @@ AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
     llvmLinkExe(llvmBin + "/llvm-link"),
     compilerTempDir(0),
     inprocess(true),
-    linkinprocess(true),
     logLevel(LL_ERRORS),
     printlog(false),
     keeptmp(false) {
@@ -741,8 +738,7 @@ bool AMDGPUCompiler::EmitLinkerError(LLVMContext &context, const Twine &message)
 }
 
 bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* output, const std::vector<std::string>& options) {
-  bool bIsInProcess = IsInProcess() || IsLinkInProcess();
-  PrintPhase("LinkLLVMBitcode", bIsInProcess);
+  PrintPhase("LinkLLVMBitcode", IsInProcess());
   std::vector<const char*> args;
   for (Data* input : inputs) {
     FileReference* inputFile = ToInputFile(input, CompilerTempDir());
@@ -752,7 +748,7 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   if (!options.empty()) {
     std::vector<const char*> argv;
     for (auto option : options) {
-      if (bIsInProcess) {
+      if (IsInProcess()) {
         argv.push_back("");
         argv.push_back(option.c_str());
         if (!cl::ParseCommandLineOptions(argv.size(), &argv[0], "llvm linker")) {
@@ -764,12 +760,12 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
       }
     }
   }
-  if (!bIsInProcess) {
+  if (!IsInProcess()) {
     args.push_back("-o");
     args.push_back(outputFile->Name().c_str());
   }
-  if (bIsInProcess) {
-    PrintOptions(args, "llvm linker", bIsInProcess);
+  if (IsInProcess()) {
+    PrintOptions(args, "llvm linker", IsInProcess());
     LLVMContext context;
     context.setDiagnosticHandler(
         llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
@@ -836,11 +832,14 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
           if (!Clang.ExecuteAction(*Act)) { return Return(false); }
         }
         else if (i == 2 && sJobName == "amdgpu::Linker") {
-          // lld fork
-          if (!InvokeTool(J.getArguments(), llvmBin + +"/ld.lld")) { return Return(false); }
-          /* lld statically linked */
-          //ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(J.getArguments());
-          //if (!lld::elf::link(ArgRefs, false)) { return Return(false); }
+          driver::ArgStringList Args(J.getArguments());
+          Args.insert(Args.begin(),"");
+          ArrayRef<const char*> ArgRefs = llvm::makeArrayRef(Args);
+          static std::mutex m_screen;
+          m_screen.lock();
+          bool lldRet = lld::elf::link(ArgRefs, false, OS);
+          m_screen.unlock();
+          if (!lldRet) { return Return(false); }
         }
         else { return Return(false); }
         i++;

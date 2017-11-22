@@ -110,6 +110,7 @@ const char* DataTypeExt(DataType type) {
     case DT_EXECUTABLE: return "bc";
     case DT_MAP: return "map";
     case DT_INTERNAL: return 0;
+    case DT_ASSEMBLY: return "s";
     default: assert(false); return 0;
   }
 }
@@ -672,8 +673,12 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
   PrintPhase("CompileToLLVMBitcode", IsInProcess());
   std::vector<const char*> args;
   StartWithCommonArgs(args);
-  args.push_back("-x");
-  args.push_back("cl");
+  if (input->Type() == DT_ASSEMBLY) {
+    return false;
+  } else {
+    args.push_back("-x");
+    args.push_back("cl");
+  }
   args.push_back("-c");
   args.push_back("-emit-llvm");
   FileReference* inputFile = ToInputFile(input, CompilerTempDir());
@@ -812,8 +817,18 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-  PrintOptions(args, "clang Driver", IsInProcess());
-  if (IsInProcess()) {
+  if (input->Type() == DT_ASSEMBLY) {
+    args.push_back("-x");
+    args.push_back("assembler");
+  }
+  PrintOptions(args, "clang Driver", IsInProcess() && input->Type() != DT_ASSEMBLY);
+  // In case of assembly text input the workflow is clang driver based (inprocess is switched off).
+  // Thus clang-as and lld jobs are forked.
+  // Reason: there is no inprocess implemenation of assembling in clang.
+  // It needs AssemblerInvocation instead of CompilerInvocation with its own CreateFromArgs method,
+  // and also own ExecuteAssembler, as there is no corresponding action in clang for ExecuteAction method.
+  // P.S. The missing functionality presented in clang\tools\driver\cc1as_main.cpp
+  if (IsInProcess() && input->Type() != DT_ASSEMBLY) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     InitDriver(driver);
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));

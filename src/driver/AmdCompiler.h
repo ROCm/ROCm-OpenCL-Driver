@@ -20,6 +20,7 @@ enum DataType {
   DT_EXECUTABLE,
   DT_MAP,
   DT_INTERNAL,
+  DT_ASSEMBLY,
 };
 
 enum LogLevel {

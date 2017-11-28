@@ -289,6 +289,7 @@ private:
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void StartWithCommonArgs(std::vector<const char*>& args);
+  void TransformOptionsForAssembler(const std::vector<std::string>& options, std::vector<std::string>& transformed_options);
   void ResetOptionsToDefault();
   // Filter out option(s) contradictory to in-process compilation
   void FilterArgs(ArgStringList& args);
@@ -302,6 +303,7 @@ private:
   void PrintJobs(const JobList &jobs);
   void PrintPhase(const std::string& phase, bool isInProcess);
   bool Return(bool retValue);
+  void FlushLog();
   File* CompilerTempDir();
   bool IsVar(const std::string& sEnvVar, bool bVar);
   bool EmitLinkerError(LLVMContext &context, const Twine &message);
@@ -482,13 +484,17 @@ const std::string& AMDGPUCompiler::Output() {
   return output;
 }
 
+void AMDGPUCompiler::FlushLog() {
+  if (!IsPrintLog())
+    return;
+  static std::mutex m_screen;
+  m_screen.lock();
+  std::cout << Output();
+  m_screen.unlock();
+}
+
 bool AMDGPUCompiler::Return(bool retValue) {
-  if (IsPrintLog()) {
-    static std::mutex m_screen;
-    m_screen.lock();
-    std::cout << Output();
-    m_screen.unlock();
-  }
+  FlushLog();
   return retValue;
 }
 
@@ -509,11 +515,13 @@ void AMDGPUCompiler::PrintJobs(const JobList &jobs) {
     ++i;
   }
   OS << "\n";
+  FlushLog();
 }
 
 void AMDGPUCompiler::PrintPhase(const std::string& phase, bool isInProcess) {
   if (GetLogLevel() < LL_VERBOSE) { return; }
   OS << "\n[AMD OCL] " << "Phase: " << phase << (isInProcess ? " [in-process]" : "") << "\n";
+  FlushLog();
 }
 
 void AMDGPUCompiler::PrintOptions(ArrayRef<const char*> args, const std::string& sToolName, bool isInProcess) {
@@ -523,6 +531,7 @@ void AMDGPUCompiler::PrintOptions(ArrayRef<const char*> args, const std::string&
     OS << "      " << A << "\n";
   }
   OS << "\n";
+  FlushLog();
 }
 
 AMDGPUCompiler::AMDGPUCompiler(const std::string& llvmBin_)
@@ -806,6 +815,47 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
   return Return(output->ReadOutputFile(outputFile));
 }
 
+void AMDGPUCompiler::TransformOptionsForAssembler(const std::vector<std::string>& options, std::vector<std::string>& transformed_options) {
+  transformed_options.push_back("-x");
+  transformed_options.push_back("assembler");
+  transformed_options.push_back("-integrated-as");
+  const std::string swa = "-Wa,";
+  const std::string sdef = swa + "-defsym,";
+  const std::string sinc = swa +"-I,";
+  std::string transformed_option;
+  bool bcompound = false;
+  bool btransform = false;
+  for (auto &option : options) {
+    btransform = false;
+    if (bcompound) {
+      transformed_option += option;
+      bcompound = false;
+      btransform = true;
+    } else {
+      if (option.find("-D") == 0) {
+        transformed_option = sdef;
+        btransform = true;
+      } else if (option.find("-I") == 0) {
+        transformed_option = sinc;
+        btransform = true;
+      }
+      if (btransform) {
+        if (option.size() > 2) {
+          transformed_option += option.substr(2);
+        } else {
+          bcompound = true;
+          continue;
+        }
+      }
+    }
+    if (btransform) {
+      transformed_options.push_back(transformed_option);
+    } else {
+      transformed_options.push_back(option);
+    }
+  }
+}
+
 bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const std::vector<std::string>& options) {
   PrintPhase("CompileAndLinkExecutable", IsInProcess());
   std::vector<const char*> args;
@@ -814,17 +864,19 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   args.push_back(inputFile->Name().c_str());
   File* outputFile = ToOutputFile(output, CompilerTempDir());
   args.push_back("-o"); args.push_back(outputFile->Name().c_str());
-  for (const std::string& s : options) {
-    args.push_back(s.c_str());
-  }
+  std::vector<std::string> transformed_options;
+  const std::vector<std::string>* opts = &options;
   if (input->Type() == DT_ASSEMBLY) {
-    args.push_back("-x");
-    args.push_back("assembler");
+    TransformOptionsForAssembler(options, transformed_options);
+    opts = &transformed_options;
+  }
+  for (auto &option : *opts) {
+    args.push_back(option.c_str());
   }
   PrintOptions(args, "clang Driver", IsInProcess() && input->Type() != DT_ASSEMBLY);
   // In case of assembly text input the workflow is clang driver based (inprocess is switched off).
   // Thus clang-as and lld jobs are forked.
-  // Reason: there is no inprocess implemenation of assembling in clang.
+  // Reason: there is no inprocess implementation of assembling in clang.
   // It needs AssemblerInvocation instead of CompilerInvocation with its own CreateFromArgs method,
   // and also own ExecuteAssembler, as there is no corresponding action in clang for ExecuteAction method.
   // P.S. The missing functionality presented in clang\tools\driver\cc1as_main.cpp

@@ -45,6 +45,7 @@
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/CodeGen/CodeGenAction.h"
+#include "clang/CodeGen/BackendUtil.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
@@ -55,6 +56,22 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "lld/Common/Driver.h"
+
+// in-process assembler
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Driver/DriverDiagnostic.h"
+#include "clang/Driver/Options.h"
+#include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Frontend/Utils.h"
+#include "llvm/Option/Arg.h"
+#include "llvm/Option/ArgList.h"
+#include "llvm/Option/OptTable.h"
+#include "llvm/MC/MCAsmBackend.h"
+#include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCParser/MCAsmParser.h"
+#include "llvm/MC/MCParser/MCTargetAsmParser.h"
+#include <memory>
+#include <system_error>
 
 #include <sstream>
 #include <iostream>
@@ -82,8 +99,10 @@
 
 using namespace llvm;
 using namespace llvm::object;
+using namespace llvm::opt;
 using namespace clang;
 using namespace clang::driver;
+using namespace clang::driver::options;
 
 namespace amd {
 namespace opencl_driver {
@@ -271,6 +290,58 @@ private:
     }
   };
 
+  // Helper class for representing a single invocation of the assembler.
+  struct AssemblerInvocation {
+    enum FileType {
+      FT_Asm,  // Assembly (.s) output, transliterate mode.
+      FT_Null, // No output, for timing purposes.
+      FT_Obj   // Object file output.
+    };
+    FileType OutputType = FT_Asm;
+    std::string Triple;
+    // If given, the name of the target CPU to determine which instructions are legal.
+    std::string CPU;
+    // The list of target specific features to enable or disable -- this should
+    // be a list of strings starting with '+' or '-'.
+    std::vector<std::string> Features;
+    // The list of symbol definitions.
+    std::vector<std::string> SymbolDefs;
+    std::vector<std::string> IncludePaths;
+    unsigned NoInitialTextSection : 1;
+    unsigned SaveTemporaryLabels : 1;
+    unsigned GenDwarfForAssembly : 1;
+    unsigned RelaxELFRelocations : 1;
+    unsigned DwarfVersion = 0;
+    std::string DwarfDebugFlags;
+    std::string DwarfDebugProducer;
+    std::string DebugCompilationDir;
+    llvm::DebugCompressionType CompressDebugSections = llvm::DebugCompressionType::None;
+    std::string MainFileName;
+    std::string InputFile = "-";
+    std::vector<std::string> LLVMArgs;
+    std::string OutputPath = "-";
+    unsigned OutputAsmVariant = 0;
+    unsigned ShowEncoding : 1;
+    unsigned ShowInst : 1;
+    unsigned RelaxAll : 1;
+    unsigned NoExecStack : 1;
+    unsigned FatalWarnings : 1;
+    unsigned IncrementalLinkerCompatible : 1;
+    // The name of the relocation model to use.
+    std::string RelocationModel;
+    AssemblerInvocation()
+      : NoInitialTextSection(0),
+        SaveTemporaryLabels(0),
+        GenDwarfForAssembly(0),
+        RelaxELFRelocations(0),
+        ShowEncoding(0),
+        ShowInst(0),
+        RelaxAll(0),
+        NoExecStack(0),
+        FatalWarnings(0),
+        IncrementalLinkerCompatible(0) {}
+  };
+
   std::string output;
   llvm::raw_string_ostream OS;
   IntrusiveRefCntPtr<DiagnosticOptions> diagOpts;
@@ -285,17 +356,26 @@ private:
   LogLevel logLevel;
   bool printlog;
   bool keeptmp;
+  const std::string clangJobName = "clang";
+  const std::string clangasJobName = "clang::as";
+  const std::string linkerJobName = "amdgpu::Linker";
+  const std::string clangDriverName = "clang Driver";
 
   template <typename T>
   inline T* AddData(T* d) { datas.push_back(d); return d; }
   void StartWithCommonArgs(std::vector<const char*>& args);
   void TransformOptionsForAssembler(const std::vector<std::string>& options, std::vector<std::string>& transformed_options);
   void ResetOptionsToDefault();
-  // Filter out option(s) contradictory to in-process compilation
-  void FilterArgs(ArgStringList& args);
+  // Filter out job arguments contradictory to in-process compilation
+  ArgStringList GetJobArgsFitered(const Command& job);
   // Parse -mllvm options
-  bool ParseLLVMOptions(const CompilerInstance& clang);
+  bool ParseLLVMOptions(const std::vector<std::string>& options);
   bool PrepareCompiler(CompilerInstance& clang, const Command& job);
+  bool PrepareAssembler(AssemblerInvocation &Opts, const Command& job);
+  bool ExecuteCompiler(CompilerInstance& clang, BackendAction action);
+  bool ExecuteAssembler(AssemblerInvocation &Opts);
+  bool CreateAssemblerInvocationFromArgs(AssemblerInvocation &Opts, ArrayRef<const char *> Argv);
+  std::unique_ptr<raw_fd_ostream> GetAssemblerOutputStream(AssemblerInvocation &Opts, bool Binary);
   void InitDriver(std::unique_ptr<Driver>& driver);
   bool InvokeDriver(ArrayRef<const char*> args);
   bool InvokeTool(ArrayRef<const char*> args, const std::string& sToolName);
@@ -395,6 +475,260 @@ std::string AMDGPUCompiler::JoinFileName(const std::string& p1, const std::strin
   return r;
 }
 
+std::unique_ptr<raw_fd_ostream>
+AMDGPUCompiler::GetAssemblerOutputStream(AssemblerInvocation &Opts, bool Binary) {
+  if (Opts.OutputPath.empty()) {
+    Opts.OutputPath = "-";
+  }
+  // Make sure that the Out file gets unlinked from the disk if we get a SIGINT.
+  if (Opts.OutputPath != "-") {
+    sys::RemoveFileOnSignal(Opts.OutputPath);
+  }
+  std::error_code EC;
+  auto Out = llvm::make_unique<raw_fd_ostream>(Opts.OutputPath, EC, (Binary ? sys::fs::F_None : sys::fs::F_Text));
+  if (EC) {
+    diags.Report(diag::err_fe_unable_to_open_output) << Opts.OutputPath << EC.message();
+    return nullptr;
+  }
+  return Out;
+}
+
+bool AMDGPUCompiler::CreateAssemblerInvocationFromArgs(AssemblerInvocation &Opts, ArrayRef<const char *> Argv) {
+  bool Success = true;
+  // Parse the arguments.
+  std::unique_ptr<OptTable> OptTbl(createDriverOptTable());
+  const unsigned IncludedFlagsBitmask = options::CC1AsOption;
+  unsigned MissingArgIndex, MissingArgCount;
+  InputArgList Args = OptTbl->ParseArgs(Argv, MissingArgIndex, MissingArgCount, IncludedFlagsBitmask);
+  // Check for missing argument error.
+  if (MissingArgCount) {
+    diags.Report(diag::err_drv_missing_argument) << Args.getArgString(MissingArgIndex) << MissingArgCount;
+    Success = false;
+  }
+  // Issue errors on unknown arguments.
+  for (const Arg *A : Args.filtered(OPT_UNKNOWN)) {
+    diags.Report(diag::err_drv_unknown_argument) << A->getAsString(Args);
+    Success = false;
+  }
+  // Construct the invocation.
+  // Target Options
+  Opts.Triple = llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
+  Opts.CPU = Args.getLastArgValue(OPT_target_cpu);
+  Opts.Features = Args.getAllArgValues(OPT_target_feature);
+  // Use the default target triple if unspecified.
+  if (Opts.Triple.empty()) {
+    Opts.Triple = llvm::sys::getDefaultTargetTriple();
+  }
+  // Language Options
+  Opts.IncludePaths = Args.getAllArgValues(OPT_I);
+  Opts.NoInitialTextSection = Args.hasArg(OPT_n);
+  Opts.SaveTemporaryLabels = Args.hasArg(OPT_msave_temp_labels);
+  // Any DebugInfoKind implies GenDwarfForAssembly.
+  Opts.GenDwarfForAssembly = Args.hasArg(OPT_debug_info_kind_EQ);
+  if (const Arg *A = Args.getLastArg(OPT_compress_debug_sections, OPT_compress_debug_sections_EQ)) {
+    if (A->getOption().getID() == OPT_compress_debug_sections) {
+      // TODO: be more clever about the compression type auto-detection
+      Opts.CompressDebugSections = llvm::DebugCompressionType::GNU;
+    } else {
+      Opts.CompressDebugSections =
+        llvm::StringSwitch<llvm::DebugCompressionType>(A->getValue())
+        .Case("none", llvm::DebugCompressionType::None)
+        .Case("zlib", llvm::DebugCompressionType::Z)
+        .Case("zlib-gnu", llvm::DebugCompressionType::GNU)
+        .Default(llvm::DebugCompressionType::None);
+    }
+  }
+  Opts.RelaxELFRelocations = Args.hasArg(OPT_mrelax_relocations);
+  Opts.DwarfVersion = getLastArgIntValue(Args, OPT_dwarf_version_EQ, 2, diags);
+  Opts.DwarfDebugFlags = Args.getLastArgValue(OPT_dwarf_debug_flags);
+  Opts.DwarfDebugProducer = Args.getLastArgValue(OPT_dwarf_debug_producer);
+  Opts.DebugCompilationDir = Args.getLastArgValue(OPT_fdebug_compilation_dir);
+  Opts.MainFileName = Args.getLastArgValue(OPT_main_file_name);
+  // Frontend Options
+  if (Args.hasArg(OPT_INPUT)) {
+    bool First = true;
+    for (const Arg *A : Args.filtered(OPT_INPUT)) {
+      if (First) {
+        Opts.InputFile = A->getValue();
+        First = false;
+      } else {
+        diags.Report(diag::err_drv_unknown_argument) << A->getAsString(Args);
+        Success = false;
+      }
+    }
+  }
+  Opts.LLVMArgs = Args.getAllArgValues(OPT_mllvm);
+  Opts.OutputPath = Args.getLastArgValue(OPT_o);
+  if (Arg *A = Args.getLastArg(OPT_filetype)) {
+    StringRef Name = A->getValue();
+    unsigned OutputType = StringSwitch<unsigned>(Name)
+      .Case("asm", AssemblerInvocation::FT_Asm)
+      .Case("null", AssemblerInvocation::FT_Null)
+      .Case("obj", AssemblerInvocation::FT_Obj)
+      .Default(~0U);
+    if (OutputType == ~0U) {
+      diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Name;
+      Success = false;
+    } else {
+      Opts.OutputType = AssemblerInvocation::FileType(OutputType);
+    }
+  }
+  // Transliterate Options
+  Opts.OutputAsmVariant = getLastArgIntValue(Args, OPT_output_asm_variant, 0, diags);
+  Opts.ShowEncoding = Args.hasArg(OPT_show_encoding);
+  Opts.ShowInst = Args.hasArg(OPT_show_inst);
+  // Assemble Options
+  Opts.RelaxAll = Args.hasArg(OPT_mrelax_all);
+  Opts.NoExecStack = Args.hasArg(OPT_mno_exec_stack);
+  Opts.FatalWarnings = Args.hasArg(OPT_massembler_fatal_warnings);
+  Opts.RelocationModel = Args.getLastArgValue(OPT_mrelocation_model, "pic");
+  Opts.IncrementalLinkerCompatible = Args.hasArg(OPT_mincremental_linker_compatible);
+  Opts.SymbolDefs = Args.getAllArgValues(OPT_defsym);
+  return Success;
+}
+
+bool AMDGPUCompiler::ExecuteAssembler(AssemblerInvocation &Opts) {
+  // Get the target specific parser.
+  std::string Error;
+  const Target *TheTarget = TargetRegistry::lookupTarget(Opts.Triple, Error);
+  if (!TheTarget) {
+    return diags.Report(diag::err_target_unknown_triple) << Opts.Triple;
+  }
+  ErrorOr<std::unique_ptr<MemoryBuffer>> Buffer = MemoryBuffer::getFileOrSTDIN(Opts.InputFile);
+  if (std::error_code EC = Buffer.getError()) {
+    Error = EC.message();
+    return diags.Report(diag::err_fe_error_reading) << Opts.InputFile;
+  }
+  SourceMgr SrcMgr;
+  // Tell SrcMgr about this buffer, which is what the parser will pick up.
+  SrcMgr.AddNewSourceBuffer(std::move(*Buffer), SMLoc());
+  // Record the location of the include directories so that the lexer can find it later.
+  SrcMgr.setIncludeDirs(Opts.IncludePaths);
+  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(Opts.Triple));
+  assert(MRI && "Unable to create target register info!");
+  std::unique_ptr<MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, Opts.Triple));
+  assert(MAI && "Unable to create target asm info!");
+  // Ensure MCAsmInfo initialization occurs before any use, otherwise sections
+  // may be created with a combination of default and explicit settings.
+  MAI->setCompressDebugSections(Opts.CompressDebugSections);
+  MAI->setRelaxELFRelocations(Opts.RelaxELFRelocations);
+  bool IsBinary = Opts.OutputType == AssemblerInvocation::FT_Obj;
+  std::unique_ptr<raw_fd_ostream> FDOS = GetAssemblerOutputStream(Opts, IsBinary);
+  if (!FDOS) { return true; }
+  // FIXME: This is not pretty. MCContext has a ptr to MCObjectFileInfo and
+  // MCObjectFileInfo needs a MCContext reference in order to initialize itself.
+  std::unique_ptr<MCObjectFileInfo> MOFI(new MCObjectFileInfo());
+  MCContext Ctx(MAI.get(), MRI.get(), MOFI.get(), &SrcMgr);
+  bool PIC = false;
+  if (Opts.RelocationModel == "static") {
+    PIC = false;
+  } else if (Opts.RelocationModel == "pic") {
+    PIC = true;
+  } else {
+    assert(Opts.RelocationModel == "dynamic-no-pic" && "Invalid PIC model!");
+    PIC = false;
+  }
+  MOFI->InitMCObjectFileInfo(llvm::Triple(Opts.Triple), PIC, Ctx);
+  if (Opts.SaveTemporaryLabels) { Ctx.setAllowTemporaryLabels(false); }
+  if (Opts.GenDwarfForAssembly) { Ctx.setGenDwarfForAssembly(true); }
+  if (!Opts.DwarfDebugFlags.empty()) { Ctx.setDwarfDebugFlags(StringRef(Opts.DwarfDebugFlags)); }
+  if (!Opts.DwarfDebugProducer.empty()) { Ctx.setDwarfDebugProducer(StringRef(Opts.DwarfDebugProducer)); }
+  if (!Opts.DebugCompilationDir.empty()) { Ctx.setCompilationDir(Opts.DebugCompilationDir); }
+  if (!Opts.MainFileName.empty()) { Ctx.setMainFileName(StringRef(Opts.MainFileName)); }
+  Ctx.setDwarfVersion(Opts.DwarfVersion);
+  // Build up the feature string from the target feature list.
+  std::string FS;
+  if (!Opts.Features.empty()) {
+    FS = Opts.Features[0];
+    for (unsigned i = 1, e = Opts.Features.size(); i != e; ++i) {
+      FS += "," + Opts.Features[i];
+    }
+  }
+  std::unique_ptr<MCStreamer> Str;
+  std::unique_ptr<MCInstrInfo> MCII(TheTarget->createMCInstrInfo());
+  std::unique_ptr<MCSubtargetInfo> STI(TheTarget->createMCSubtargetInfo(Opts.Triple, Opts.CPU, FS));
+  raw_pwrite_stream *Out = FDOS.get();
+  std::unique_ptr<buffer_ostream> BOS;
+  // FIXME: There is a bit of code duplication with addPassesToEmitFile.
+  if (Opts.OutputType == AssemblerInvocation::FT_Asm) {
+    MCInstPrinter *IP = TheTarget->createMCInstPrinter(llvm::Triple(Opts.Triple), Opts.OutputAsmVariant, *MAI, *MCII, *MRI);
+    MCCodeEmitter *CE = nullptr;
+    MCAsmBackend *MAB = nullptr;
+    if (Opts.ShowEncoding) {
+      CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
+      MCTargetOptions Options;
+      MAB = TheTarget->createMCAsmBackend(*MRI, Opts.Triple, Opts.CPU, Options);
+    }
+    auto FOut = llvm::make_unique<formatted_raw_ostream>(*Out);
+    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut), /*asmverbose*/ true, /*useDwarfDirectory*/ true, IP, CE, MAB, Opts.ShowInst));
+  } else if (Opts.OutputType == AssemblerInvocation::FT_Null) {
+    Str.reset(createNullStreamer(Ctx));
+  } else {
+    assert(Opts.OutputType == AssemblerInvocation::FT_Obj && "Invalid file type!");
+    if (!FDOS->supportsSeeking()) {
+      BOS = make_unique<buffer_ostream>(*FDOS);
+      Out = BOS.get();
+    }
+    MCCodeEmitter *CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
+    MCTargetOptions Options;
+    MCAsmBackend *MAB = TheTarget->createMCAsmBackend(*MRI, Opts.Triple, Opts.CPU, Options);
+    llvm::Triple T(Opts.Triple);
+    Str.reset(TheTarget->createMCObjectStreamer(T, Ctx, std::unique_ptr<MCAsmBackend>(MAB),
+      *Out, std::unique_ptr<MCCodeEmitter>(CE), *STI,
+      Opts.RelaxAll, Opts.IncrementalLinkerCompatible,
+      /*DWARFMustBeAtTheEnd*/ true));
+    Str.get()->InitSections(Opts.NoExecStack);
+  }
+  bool Failed = false;
+  std::unique_ptr<MCAsmParser> Parser(createMCAsmParser(SrcMgr, Ctx, *Str.get(), *MAI));
+  // FIXME: init MCTargetOptions from sanitizer flags here.
+  MCTargetOptions Options;
+  std::unique_ptr<MCTargetAsmParser> TAP(TheTarget->createMCAsmParser(*STI, *Parser, *MCII, Options));
+  if (!TAP) {
+    Failed = diags.Report(diag::err_target_unknown_triple) << Opts.Triple;
+  }
+  // Set values for symbols, if any.
+  for (auto &S : Opts.SymbolDefs) {
+    auto Pair = StringRef(S).split('=');
+    auto Sym = Pair.first;
+    auto Val = Pair.second;
+    int64_t Value;
+    // We have already error checked this in the driver.
+    Val.getAsInteger(0, Value);
+    Ctx.setSymbolValue(Parser->getStreamer(), Sym, Value);
+  }
+  if (!Failed) {
+    Parser->setTargetParser(*TAP.get());
+    Failed = Parser->Run(Opts.NoInitialTextSection);
+  }
+  // Close Streamer first. It might have a reference to the output stream.
+  Str.reset();
+  // Close the output stream early.
+  BOS.reset();
+  FDOS.reset();
+  // Delete output file if there were errors.
+  if (Failed && Opts.OutputPath != "-") {
+    sys::fs::remove(Opts.OutputPath);
+  }
+  return Failed;
+}
+
+bool AMDGPUCompiler::ExecuteCompiler(CompilerInstance& clang, BackendAction action) {
+  std::unique_ptr<CodeGenAction> Act;
+  switch (action) {
+    case Backend_EmitBC:
+      Act = std::unique_ptr<CodeGenAction>(new EmitBCAction());
+      break;
+    case Backend_EmitObj:
+      Act = std::unique_ptr<CodeGenAction>(new EmitObjAction());
+      break;
+    default: { return false; }
+  }
+  if (!Act.get()) { return false; }
+  if (!clang.ExecuteAction(*Act)) { return false; }
+  return true;
+}
+
 void AMDGPUCompiler::InitDriver(std::unique_ptr<Driver>& driver) {
   driver->CCPrintOptions = !!::getenv("CC_PRINT_OPTIONS");
   driver->setTitle("AMDGPU OpenCL driver");
@@ -408,17 +742,28 @@ void AMDGPUCompiler::StartWithCommonArgs(std::vector<const char*>& args) {
   args.push_back("");
 }
 
-void AMDGPUCompiler::FilterArgs(ArgStringList& args) {
-  ArgStringList::iterator it = std::find(args.begin(), args.end(), "-disable-free");
+ArgStringList AMDGPUCompiler::GetJobArgsFitered(const Command& job) {
+  std::string arg;
+  std::string sJobName(job.getCreator().getName());
+  if (sJobName == clangJobName) {
+    arg = "-disable-free";
+  } else if (sJobName == clangasJobName) {
+    arg = "-cc1as";
+  } else {
+    return std::move(job.getArguments());
+  }
+  ArgStringList args(job.getArguments());
+  ArgStringList::iterator it = std::find(args.begin(), args.end(), arg);
   if (it != args.end()) {
     args.erase(it);
   }
+  return std::move(args);
 }
 
-bool AMDGPUCompiler::ParseLLVMOptions(const CompilerInstance& clang) {
-  if (clang.getFrontendOpts().LLVMArgs.empty()) { return true; }
+bool AMDGPUCompiler::ParseLLVMOptions(const std::vector<std::string>& options) {
+  if (options.empty()) { return true; }
   std::vector<const char*> args;
-  for (auto A : clang.getFrontendOpts().LLVMArgs) {
+  for (auto A : options) {
     args.push_back("");
     args.push_back(A.c_str());
     if (!cl::ParseCommandLineOptions(args.size(), &args[0], "-mllvm options parsing")) { return false; }
@@ -438,17 +783,23 @@ void AMDGPUCompiler::ResetOptionsToDefault() {
 }
 
 bool AMDGPUCompiler::PrepareCompiler(CompilerInstance& clang, const Command& job) {
-  ResetOptionsToDefault();
-  ArgStringList CCArgs(job.getArguments());
-  FilterArgs(CCArgs);
   clang.createDiagnostics();
   if (!clang.hasDiagnostics()) { return false; }
+  ResetOptionsToDefault();
+  ArgStringList args = GetJobArgsFitered(job);
   if (!CompilerInvocation::CreateFromArgs(clang.getInvocation(),
-    const_cast<const char**>(CCArgs.data()),
-    const_cast<const char**>(CCArgs.data()) +
-    CCArgs.size(),
+    const_cast<const char**>(args.data()),
+    const_cast<const char**>(args.data()) + args.size(),
     clang.getDiagnostics())) { return false; }
-  if (!ParseLLVMOptions(clang)) { return false; }
+  if (!ParseLLVMOptions(clang.getFrontendOpts().LLVMArgs)) { return false; }
+  return true;
+}
+
+bool AMDGPUCompiler::PrepareAssembler(AssemblerInvocation &Opts, const Command& job) {
+  ResetOptionsToDefault();
+  if (!CreateAssemblerInvocationFromArgs(Opts, llvm::makeArrayRef(GetJobArgsFitered(job)))) { return false; }
+  if (diags.hasErrorOccurred()) { return false; }
+  if (!ParseLLVMOptions(Opts.LLVMArgs)) { return false; }
   return true;
 }
 
@@ -505,11 +856,7 @@ void AMDGPUCompiler::PrintJobs(const JobList &jobs) {
   for (auto const & J : jobs) {
     std::string sJobName(J.getCreator().getName());
     OS << (i > 1 ? "\n" : "") << "  JOB [" << i << "] " << sJobName << "\n";
-    ArgStringList Args(J.getArguments());
-    if (sJobName == "clang") {
-      FilterArgs(Args);
-    }
-    for (auto A : Args) {
+    for (auto A : GetJobArgsFitered(J)) {
       OS << "      " << A << "\n";
     }
     ++i;
@@ -698,7 +1045,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
   for (const std::string& s : options) {
     args.push_back(s.c_str());
   }
-  PrintOptions(args, "clang Driver", IsInProcess());
+  PrintOptions(args, clangDriverName, IsInProcess());
   if (IsInProcess()) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     InitDriver(driver);
@@ -707,10 +1054,7 @@ bool AMDGPUCompiler::CompileToLLVMBitcode(Data* input, Data* output, const std::
     PrintJobs(Jobs);
     CompilerInstance Clang;
     if (!PrepareCompiler(Clang, *Jobs.begin())) { return Return(false); }
-    // Action Backend_EmitBC
-    std::unique_ptr<CodeGenAction> Act(new EmitBCAction());
-    if (!Act.get()) { return Return(false); }
-    if (!Clang.ExecuteAction(*Act)) { return Return(false); }
+    if (!ExecuteCompiler(Clang, Backend_EmitBC)) { return Return(false); }
   } else {
     if (!InvokeDriver(args)) { return Return(false); }
   }
@@ -873,14 +1217,8 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
   for (auto &option : *opts) {
     args.push_back(option.c_str());
   }
-  PrintOptions(args, "clang Driver", IsInProcess() && input->Type() != DT_ASSEMBLY);
-  // In case of assembly text input the workflow is clang driver based (inprocess is switched off).
-  // Thus clang-as and lld jobs are forked.
-  // Reason: there is no inprocess implementation of assembling in clang.
-  // It needs AssemblerInvocation instead of CompilerInvocation with its own CreateFromArgs method,
-  // and also own ExecuteAssembler, as there is no corresponding action in clang for ExecuteAction method.
-  // P.S. The missing functionality presented in clang\tools\driver\cc1as_main.cpp
-  if (IsInProcess() && input->Type() != DT_ASSEMBLY) {
+  PrintOptions(args, clangDriverName, IsInProcess());
+  if (IsInProcess()) {
     std::unique_ptr<Driver> driver(new Driver("", STRING(AMDGCN_TRIPLE), diags));
     InitDriver(driver);
     std::unique_ptr<Compilation> C(driver->BuildCompilation(args));
@@ -890,28 +1228,33 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
     for (auto const & J : Jobs) {
       if (Jobs.size() == 2) {
         std::string sJobName(J.getCreator().getName());
-        if (i == 1 && sJobName == "clang") {
-          CompilerInstance Clang;
-          if (!PrepareCompiler(Clang, J)) { return Return(false); }
-          // Action Backend_EmitObj
-          std::unique_ptr<CodeGenAction> Act(new EmitObjAction());
-          if (!Act.get()) { return Return(false); }
-          if (!Clang.ExecuteAction(*Act)) { return Return(false); }
-        }
-        else if (i == 2 && sJobName == "amdgpu::Linker") {
+        if (i == 1 && (sJobName == clangJobName || sJobName == clangasJobName)) {
+          switch (input->Type()) {
+            case DT_ASSEMBLY: {
+              AssemblerInvocation Asm;
+              if (!PrepareAssembler(Asm, J)) { return Return(false); }
+              if (ExecuteAssembler(Asm)) { return Return(false); }
+              break;
+            }
+            default: {
+              CompilerInstance Clang;
+              if (!PrepareCompiler(Clang, J)) { return Return(false); }
+              if (!ExecuteCompiler(Clang, Backend_EmitObj)) { return Return(false); }
+              break;
+            }
+          }
+        } else if (i == 2 && sJobName == linkerJobName) {
           driver::ArgStringList Args(J.getArguments());
-          Args.insert(Args.begin(),"");
+          Args.insert(Args.begin(), "");
           ArrayRef<const char*> ArgRefs = llvm::makeArrayRef(Args);
           static std::mutex m_screen;
           m_screen.lock();
           bool lldRet = lld::elf::link(ArgRefs, false, OS);
           m_screen.unlock();
           if (!lldRet) { return Return(false); }
-        }
-        else { return Return(false); }
+        } else { return Return(false); }
         i++;
-      }
-      else { return Return(false); }
+      } else { return Return(false); }
     }
   } else {
     if (!InvokeDriver(args)) { return Return(false); }

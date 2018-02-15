@@ -1151,7 +1151,7 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     }
     std::error_code ec;
     llvm::ToolOutputFile out(outputFile->Name(), ec, sys::fs::F_None);
-    WriteBitcodeToFile(Composite.get(), out.os());
+    WriteBitcodeToFile(*Composite.get(), out.os());
     out.keep();
   } else {
     if (!InvokeTool(args, llvmLinkExe)) { return Return(false); }

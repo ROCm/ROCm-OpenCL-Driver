@@ -652,15 +652,17 @@ bool AMDGPUCompiler::ExecuteAssembler(AssemblerInvocation &Opts) {
   // FIXME: There is a bit of code duplication with addPassesToEmitFile.
   if (Opts.OutputType == AssemblerInvocation::FT_Asm) {
     MCInstPrinter *IP = TheTarget->createMCInstPrinter(llvm::Triple(Opts.Triple), Opts.OutputAsmVariant, *MAI, *MCII, *MRI);
-    MCCodeEmitter *CE = nullptr;
-    MCAsmBackend *MAB = nullptr;
+    std::unique_ptr<MCCodeEmitter> MCE;
+    std::unique_ptr<MCAsmBackend> MAB;
     if (Opts.ShowEncoding) {
-      CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
+      MCE.reset(TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx));
       MCTargetOptions Options;
-      MAB = TheTarget->createMCAsmBackend(*STI, *MRI, Options);
+      MAB.reset(TheTarget->createMCAsmBackend(*STI, *MRI, Options));
     }
     auto FOut = llvm::make_unique<formatted_raw_ostream>(*Out);
-    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut), /*asmverbose*/ true, /*useDwarfDirectory*/ true, IP, CE, MAB, Opts.ShowInst));
+    Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut),
+        /*asmverbose*/ true, /*useDwarfDirectory*/ true, IP, std::move(MCE),
+        std::move(MAB), Opts.ShowInst));
   } else if (Opts.OutputType == AssemblerInvocation::FT_Null) {
     Str.reset(createNullStreamer(Ctx));
   } else {

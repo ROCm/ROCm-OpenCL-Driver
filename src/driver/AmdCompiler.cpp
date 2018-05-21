@@ -27,6 +27,7 @@
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCObjectFileInfo.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -675,10 +676,10 @@ bool AMDGPUCompiler::ExecuteAssembler(AssemblerInvocation &Opts) {
     MCTargetOptions Options;
     MCAsmBackend *MAB = TheTarget->createMCAsmBackend(*STI, *MRI, Options);
     llvm::Triple T(Opts.Triple);
-    Str.reset(TheTarget->createMCObjectStreamer(T, Ctx, std::unique_ptr<MCAsmBackend>(MAB),
-      *Out, std::unique_ptr<MCCodeEmitter>(CE), *STI,
-      Opts.RelaxAll, Opts.IncrementalLinkerCompatible,
-      /*DWARFMustBeAtTheEnd*/ true));
+    Str.reset(TheTarget->createMCObjectStreamer(T, Ctx,
+      std::unique_ptr<MCAsmBackend>(MAB), MAB->createObjectWriter(*Out),
+      std::unique_ptr<MCCodeEmitter>(CE), *STI, Opts.RelaxAll,
+      Opts.IncrementalLinkerCompatible, /*DWARFMustBeAtTheEnd*/ true));
     Str.get()->InitSections(Opts.NoExecStack);
   }
   bool Failed = false;

@@ -969,7 +969,9 @@ bool AMDGPUCompiler::InvokeTool(ArrayRef<const char*> args, const std::string& s
   File* err = NewTempFile(DT_INTERNAL);
   Optional<StringRef> Redirects[] =
       {None, StringRef(out->Name()), StringRef(err->Name())};
-  int res = llvm::sys::ExecuteAndWait(sToolName, args1.data(), nullptr, Redirects);
+  Optional<ArrayRef<StringRef>> Env;
+  auto Args = llvm::toStringRefArray(args1.data());
+  int res = llvm::sys::ExecuteAndWait(sToolName, Args, Env, Redirects);
   std::string outStr, errStr;
   out->ReadToString(outStr);
   err->ReadToString(errStr);

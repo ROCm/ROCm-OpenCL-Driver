@@ -760,7 +760,7 @@ ArgStringList AMDGPUCompiler::GetJobArgsFitered(const Command& job) {
   if (it != args.end()) {
     args.erase(it);
   }
-  return std::move(args);
+  return args;
 }
 
 bool AMDGPUCompiler::ParseLLVMOptions(const std::vector<std::string>& options) {

@@ -18,7 +18,6 @@
 // implicitly needed
 #include "clang/Basic/VirtualFileSystem.h"
 
-#include "AMDGPU.h"
 #include "Disassembler/CodeObjectDisassembler.h"
 
 #include "llvm/MC/MCAsmInfo.h"
@@ -760,7 +759,7 @@ ArgStringList AMDGPUCompiler::GetJobArgsFitered(const Command& job) {
   if (it != args.end()) {
     args.erase(it);
   }
-  return std::move(args);
+  return args;
 }
 
 bool AMDGPUCompiler::ParseLLVMOptions(const std::vector<std::string>& options) {
@@ -1284,7 +1283,9 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(const std::vector<Data*>& inputs, 
 }
 
 bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump) {
-  StringRef TripleName = Triple::normalize(STRING(AMDGCN_TRIPLE));
+  Triple TheTriple(STRING(AMDGCN_TRIPLE));
+  const std::string TripleStr = TheTriple.normalize();
+
   StringRef execRef(exec->Ptr(), exec->Size());
   std::unique_ptr<MemoryBuffer> execBuffer(MemoryBuffer::getMemBuffer(execRef, "", false));
   Expected<std::unique_ptr<Binary>> execBinary = createBinary(*execBuffer);
@@ -1292,18 +1293,24 @@ bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump) {
   std::unique_ptr<Binary> Binary(execBinary.get().release());
   if (!Binary) { return false; }
   // setup context
-  const auto &TheTarget = getTheGCNTarget();
-  std::unique_ptr<MCRegisterInfo> MRI(TheTarget.createMCRegInfo(TripleName));
+
+  std::string Error;
+  const Target *TheTarget = llvm::TargetRegistry::lookupTarget(TripleStr,
+                                                               Error);
+  if (!TheTarget)
+      report_fatal_error("Could not lookup target: " + Twine(Error));
+
+  std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TripleStr));
   if (!MRI) { return false; }
-  std::unique_ptr<MCAsmInfo> AsmInfo(TheTarget.createMCAsmInfo(*MRI, TripleName));
+  std::unique_ptr<MCAsmInfo> AsmInfo(TheTarget->createMCAsmInfo(*MRI, TripleStr));
   if (!AsmInfo) { return false; }
-  std::unique_ptr<MCInstrInfo> MII(TheTarget.createMCInstrInfo());
+  std::unique_ptr<MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) { return false; }
   MCObjectFileInfo MOFI;
   MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  MOFI.InitMCObjectFileInfo(Triple(TripleName), false, Ctx);
+  MOFI.InitMCObjectFileInfo(TheTriple, false, Ctx);
   int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-  MCInstPrinter *IP(TheTarget.createMCInstPrinter(Triple(TripleName),
+  MCInstPrinter *IP(TheTarget->createMCInstPrinter(TheTriple,
                                                   AsmPrinterVariant,
                                                   *AsmInfo, *MII, *MRI));
   if (!IP) { report_fatal_error("error: no instruction printer"); }
@@ -1311,9 +1318,9 @@ bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump) {
   raw_fd_ostream FO(dump->Name(), EC, sys::fs::F_None);
   auto FOut = make_unique<formatted_raw_ostream>(FO);
   std::unique_ptr<MCStreamer> MCS(
-    TheTarget.createAsmStreamer(Ctx, std::move(FOut), true, false, IP,
+    TheTarget->createAsmStreamer(Ctx, std::move(FOut), true, false, IP,
                                 nullptr, nullptr, false));
-  CodeObjectDisassembler CODisasm(&Ctx, TripleName, IP, MCS->getTargetStreamer());
+  CodeObjectDisassembler CODisasm(&Ctx, TripleStr, IP, MCS->getTargetStreamer());
   EC = CODisasm.Disassemble(Binary->getMemoryBufferRef(), errs());
   if (EC) { return false; }
   return true;

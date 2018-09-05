@@ -93,9 +93,7 @@
 
 #define QUOTE(s) #s
 #define STRING(s) QUOTE(s)
-#ifndef AMDGCN_TRIPLE
-#define AMDGCN_TRIPLE amdgcn-amd-amdhsa-opencl
-#endif
+#define AMDGCN_TRIPLE amdgcn-amd-amdhsa
 
 using namespace llvm;
 using namespace llvm::object;

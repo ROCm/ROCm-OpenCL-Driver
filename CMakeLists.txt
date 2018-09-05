@@ -60,13 +60,6 @@ else()
 include_directories(${ROCM_OCL_INCLUDES})
 endif()
 
-option(GENERIC_IS_ZERO "Teach LLVM/Clang that generic address space IS address space 0 for AMDGPU target" OFF)
-if (GENERIC_IS_ZERO)
-  add_definitions(-DAMDGCN_TRIPLE=amdgcn-amd-amdhsa-amdgizcl)
-else (GENERIC_IS_ZERO)
-  add_definitions(-DAMDGCN_TRIPLE=amdgcn-amd-amdhsa-opencl)
-endif (GENERIC_IS_ZERO)
-
 if(UNIX)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-rtti -Wall")
   add_definitions(-D__STDC_LIMIT_MACROS)

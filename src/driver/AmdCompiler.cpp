@@ -9,6 +9,7 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/VirtualFileSystem.h"
 
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
@@ -16,7 +17,6 @@
 #include "clang/Driver/Driver.h"
 
 // implicitly needed
-#include "clang/Basic/VirtualFileSystem.h"
 
 #include "Disassembler/CodeObjectDisassembler.h"
 

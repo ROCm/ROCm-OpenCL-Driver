@@ -1252,7 +1252,7 @@ bool AMDGPUCompiler::CompileAndLinkExecutable(Data* input, Data* output, const s
             }
           }
         } else if (i == 2 && sJobName == linkerJobName) {
-          driver::ArgStringList Args(J.getArguments());
+          llvm::opt::ArgStringList Args(J.getArguments());
           Args.insert(Args.begin(), "");
           ArrayRef<const char*> ArgRefs = llvm::makeArrayRef(Args);
           static std::mutex m_screen;

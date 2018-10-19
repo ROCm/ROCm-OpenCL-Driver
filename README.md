@@ -4,7 +4,7 @@ ROCm OpenCL Driver is a thin wrapper over Clang Driver API. It provides C++ inte
 
 ## BUILDING
 
-This project requires reasonably recent LLVM/Clang build (April 2016 trunk). Testing also requires amdhsacod utility from ROCm Runtime.
+This project requires reasonably recent LLVM/Clang build (April 2016 trunk).
 
 Use out-of-source CMake build and create separate directory to run CMake.
 

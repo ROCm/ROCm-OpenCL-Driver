@@ -368,6 +368,7 @@ private:
   ArgStringList GetJobArgsFitered(const Command& job);
   // Parse -mllvm options
   bool ParseLLVMOptions(const std::vector<std::string>& options);
+  bool LoadPlugins(const std::vector<std::string>& plugins);
   bool PrepareCompiler(CompilerInstance& clang, const Command& job);
   bool PrepareAssembler(AssemblerInvocation &Opts, const Command& job);
   bool ExecuteCompiler(CompilerInstance& clang, BackendAction action);
@@ -772,6 +773,19 @@ bool AMDGPUCompiler::ParseLLVMOptions(const std::vector<std::string>& options) {
   return true;
 }
 
+bool AMDGPUCompiler::LoadPlugins(const std::vector<std::string>& plugins) {
+  if (plugins.empty()) { return true; }
+  // Load any requested plugins.
+  for (const auto &path : plugins) {
+    std::string error;
+    if (llvm::sys::DynamicLibrary::LoadLibraryPermanently(path.c_str(), &error)) {
+      diags.Report(diag::err_fe_unable_to_load_plugin) << path << error;
+      return false;
+    }
+  }
+  return true;
+}
+
 void AMDGPUCompiler::ResetOptionsToDefault() {
   cl::ResetAllOptionOccurrences();
   for (auto SC : cl::getRegisteredSubcommands()) {
@@ -791,6 +805,7 @@ bool AMDGPUCompiler::PrepareCompiler(CompilerInstance& clang, const Command& job
     const_cast<const char**>(args.data()),
     const_cast<const char**>(args.data()) + args.size(),
     clang.getDiagnostics())) { return false; }
+  if (!LoadPlugins(clang.getFrontendOpts().Plugins)) { return false; }
   if (!ParseLLVMOptions(clang.getFrontendOpts().LLVMArgs)) { return false; }
   return true;
 }

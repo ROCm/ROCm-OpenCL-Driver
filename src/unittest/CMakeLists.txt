@@ -63,7 +63,7 @@ ExternalProject_Add(
 ExternalProject_Get_Property(googletest source_dir)
 include_directories(${source_dir}/googletest/include)
 ExternalProject_Get_Property(googletest binary_dir)
-link_directories(${binary_dir}/googletest)
+link_directories(${binary_dir}/lib)
 
 #include(${GTEST_INCLUDE_DIRS})
 file(GLOB sources ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)

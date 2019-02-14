@@ -48,6 +48,8 @@ file(GLOB sources
 )
 
 include_directories(${LLVM_INCLUDE_DIR})
+include_directories(${LLVM_CONFIG_INCLUDE_DIR})
+include_directories(${LLVM_MAIN_INCLUDE_DIR})
 link_directories(${LLVM_LIBRARY_DIRS})
 add_executable(roc-cl ${sources})
 target_link_libraries(roc-cl opencl_driver)

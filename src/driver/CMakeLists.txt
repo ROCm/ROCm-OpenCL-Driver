@@ -46,6 +46,8 @@ file(GLOB sources
 )
 
 include_directories(${LLVM_INCLUDE_DIR})
+include_directories(${LLVM_CONFIG_INCLUDE_DIR})
+include_directories(${LLVM_MAIN_INCLUDE_DIR})
 include_directories(${LLVM_INCLUDE_DIR}/llvm/Target/AMDGPU)
 include_directories(${LLD_INCLUDE_DIR})
 

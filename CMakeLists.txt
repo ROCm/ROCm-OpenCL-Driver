@@ -40,10 +40,21 @@
 ##
 ################################################################################
 
+cmake_minimum_required(VERSION 2.8)
+
+# Build ROCm-OpenCL-Driver with ccache if the package is present.
+set(ROCM_OPENCL_DRIVER_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
+if(ROCM_OPENCL_DRIVER_CCACHE_BUILD)
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${CCACHE_PROGRAM})
+  else()
+    message(FATAL_ERROR "Unable to find the program ccache. Set ROCM_OPENCL_DRIVER_CCACHE_BUILD to OFF")
+  endif()
+endif()
+
 # Check if ROCm-OpenCL-Driver is built as a standalone project.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-cmake_minimum_required(VERSION 2.6)
-
 project(ROCm-OpenCL-Driver)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)

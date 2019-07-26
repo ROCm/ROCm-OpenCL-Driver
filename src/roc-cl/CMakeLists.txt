@@ -54,4 +54,4 @@ link_directories(${LLVM_LIBRARY_DIRS})
 add_executable(roc-cl ${sources})
 target_link_libraries(roc-cl opencl_driver)
 
-install(TARGETS roc-cl RUNTIME DESTINATION bin)
+install(TARGETS roc-cl RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} )

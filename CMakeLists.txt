@@ -42,6 +42,9 @@
 
 cmake_minimum_required(VERSION 2.8)
 
+## Include common cmake modules
+include ( GNUInstallDirs )
+
 # Build ROCm-OpenCL-Driver with ccache if the package is present.
 set(ROCM_OPENCL_DRIVER_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
 if(ROCM_OPENCL_DRIVER_CCACHE_BUILD)

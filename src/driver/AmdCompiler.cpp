@@ -483,7 +483,7 @@ AMDGPUCompiler::GetAssemblerOutputStream(AssemblerInvocation &Opts, bool Binary)
     sys::RemoveFileOnSignal(Opts.OutputPath);
   }
   std::error_code EC;
-  auto Out = llvm::make_unique<raw_fd_ostream>(Opts.OutputPath, EC, (Binary ? sys::fs::F_None : sys::fs::F_Text));
+  auto Out = std::make_unique<raw_fd_ostream>(Opts.OutputPath, EC, (Binary ? sys::fs::F_None : sys::fs::F_Text));
   if (EC) {
     diags.Report(diag::err_fe_unable_to_open_output) << Opts.OutputPath << EC.message();
     return nullptr;
@@ -657,7 +657,7 @@ bool AMDGPUCompiler::ExecuteAssembler(AssemblerInvocation &Opts) {
       MCTargetOptions Options;
       MAB.reset(TheTarget->createMCAsmBackend(*STI, *MRI, Options));
     }
-    auto FOut = llvm::make_unique<formatted_raw_ostream>(*Out);
+    auto FOut = std::make_unique<formatted_raw_ostream>(*Out);
     Str.reset(TheTarget->createAsmStreamer(Ctx, std::move(FOut),
         /*asmverbose*/ true, /*useDwarfDirectory*/ true, IP, std::move(MCE),
         std::move(MAB), Opts.ShowInst));
@@ -666,7 +666,7 @@ bool AMDGPUCompiler::ExecuteAssembler(AssemblerInvocation &Opts) {
   } else {
     assert(Opts.OutputType == AssemblerInvocation::FT_Obj && "Invalid file type!");
     if (!FDOS->supportsSeeking()) {
-      BOS = make_unique<buffer_ostream>(*FDOS);
+      BOS = std::make_unique<buffer_ostream>(*FDOS);
       Out = BOS.get();
     }
     MCCodeEmitter *CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, Ctx);
@@ -1134,8 +1134,8 @@ bool AMDGPUCompiler::LinkLLVMBitcode(const std::vector<Data*>& inputs, Data* out
     PrintOptions(args, "llvm linker", IsInProcess());
     LLVMContext context;
     context.setDiagnosticHandler(
-        llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
-    auto Composite = make_unique<llvm::Module>("composite", context);
+        std::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
+    auto Composite = std::make_unique<llvm::Module>("composite", context);
     Linker L(*Composite);
     unsigned ApplicableFlags = Linker::Flags::None;
     for (auto arg : args) {
@@ -1314,7 +1314,7 @@ bool AMDGPUCompiler::DumpExecutableAsText(Buffer* exec, File* dump) {
   if (!IP) { report_fatal_error("error: no instruction printer"); }
   std::error_code EC;
   raw_fd_ostream FO(dump->Name(), EC, sys::fs::F_None);
-  auto FOut = make_unique<formatted_raw_ostream>(FO);
+  auto FOut = std::make_unique<formatted_raw_ostream>(FO);
   std::unique_ptr<MCStreamer> MCS(
     TheTarget->createAsmStreamer(Ctx, std::move(FOut), true, false, IP,
                                 nullptr, nullptr, false));

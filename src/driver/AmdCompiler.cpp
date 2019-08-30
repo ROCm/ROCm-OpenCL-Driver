@@ -786,10 +786,8 @@ bool AMDGPUCompiler::PrepareCompiler(CompilerInstance& clang, const Command& job
   clang.createDiagnostics();
   if (!clang.hasDiagnostics()) { return false; }
   ResetOptionsToDefault();
-  ArgStringList args = GetJobArgsFitered(job);
-  if (!CompilerInvocation::CreateFromArgs(clang.getInvocation(),
-    const_cast<const char**>(args.data()),
-    const_cast<const char**>(args.data()) + args.size(),
+  const ArgStringList args = GetJobArgsFitered(job);
+  if (!CompilerInvocation::CreateFromArgs(clang.getInvocation(), args,
     clang.getDiagnostics())) { return false; }
   if (!ParseLLVMOptions(clang.getFrontendOpts().LLVMArgs)) { return false; }
   return true;

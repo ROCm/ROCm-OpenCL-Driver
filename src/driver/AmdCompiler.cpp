@@ -494,10 +494,10 @@ AMDGPUCompiler::GetAssemblerOutputStream(AssemblerInvocation &Opts, bool Binary)
 bool AMDGPUCompiler::CreateAssemblerInvocationFromArgs(AssemblerInvocation &Opts, ArrayRef<const char *> Argv) {
   bool Success = true;
   // Parse the arguments.
-  std::unique_ptr<OptTable> OptTbl(createDriverOptTable());
+  const OptTable &OptTbl = getDriverOptTable();
   const unsigned IncludedFlagsBitmask = options::CC1AsOption;
   unsigned MissingArgIndex, MissingArgCount;
-  InputArgList Args = OptTbl->ParseArgs(Argv, MissingArgIndex, MissingArgCount, IncludedFlagsBitmask);
+  InputArgList Args = OptTbl.ParseArgs(Argv, MissingArgIndex, MissingArgCount, IncludedFlagsBitmask);
   // Check for missing argument error.
   if (MissingArgCount) {
     diags.Report(diag::err_drv_missing_argument) << Args.getArgString(MissingArgIndex) << MissingArgCount;

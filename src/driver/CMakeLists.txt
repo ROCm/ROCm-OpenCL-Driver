@@ -96,3 +96,4 @@ target_link_libraries(opencl_driver ${llvm_libs})
 target_include_directories(opencl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 install(TARGETS opencl_driver DESTINATION ${CMAKE_INSTALL_LIBDIR} )
+install(FILES AmdCompiler.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

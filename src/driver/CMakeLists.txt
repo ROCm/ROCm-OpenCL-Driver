@@ -60,9 +60,13 @@ llvm_map_components_to_libnames(llvm_libs
   AllTargetsDescs
   AllTargetsDisassemblers
   AllTargetsInfos
+  BitWriter
   CodeGen
+  IRReader
+  Linker
   MC
   MCDisassembler
+  MCParser
   Object
   Symbolize
   Core
@@ -83,6 +87,7 @@ target_link_libraries(opencl_driver
   clangLex
   clangBasic
   clangCodeGen
+  clangSerialization
   lldELF
   lldCore
   LLVMDebugInfoDWARF

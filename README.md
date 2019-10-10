@@ -2,6 +2,10 @@
 
 ROCm OpenCL Driver is a thin wrapper over Clang Driver API. It provides C++ interface to compilation services.
 
+## DEPRECATION NOTICE
+
+AMD is deprecating ROCm-OpenCL-Driver. We will no longer develop any new feature in ROCm-OpenCL-Driver and we will stop maintaining it after its final release, which is planned for December 2019. If your application was developed with the ROCm-OpenCL-Driver, we would encourage you to transition it to [ROCm-CompilerSupport](https://github.com/RadeonOpenCompute/ROCm-CompilerSupport), which provides similar functionality.
+
 ## BUILDING
 
 This project requires reasonably recent LLVM/Clang build (April 2016 trunk).
